@@ -21,12 +21,13 @@
 
 **What we can do now (unblocked):**
 
+- ✅ Provider adapters: Anthropic (Claude), Google (Gemini), DeepSeek, llama.cpp — all built
+- ✅ Tool manifest validator with risk scoring, publisher trust, and integrity checks — built
+- ✅ Supervisor health check polling, crash recovery with escalation tiers — built
+- ✅ Moirae-specific types: supervisor configs, packaging manifests, update manifests, extension policies — built
+- ✅ 69 contract + adversarial tests passing across 4 suites
 - Continue developing `@moirae/runtime-contracts` types that don't duplicate external contracts
-- Build out `@moirae/provider-sdk` and provider adapters (OpenAI-compatible adapter already functional)
-- Develop `@moirae/tool-sdk` manifest validation and evidence types
-- Write contract tests and adversarial scenarios
-- Prepare the `MoiraeSupervisor` process lifecycle logic
-- Design the approval UI components
+- Design the IDE surface components: task panel, memory panel, approvals panel, runtime panel, skill registry, execution log, evidence viewer
 
 **Next task once unblocked:** Implement Horae runtime-core (registry → capability planner → session orchestrator → governed vertical slice)
 
@@ -101,17 +102,21 @@ Moirae Code/
 ├── apps/                             # 2 applications
 │   ├── moirae-core-extension/        ✅ VS Code extension scaffold
 │   └── diagnostics-cli/              ✅ Working CLI tool
-├── integrations/                     # 5 typed clients
+├── integrations/                     # 9 typed clients + adapters
 │   ├── ananke-client/                ✅ HTTP client for Ananke Gateway
 │   ├── mnemosyne-client/             ✅ MCP client for Almanac tools
 │   ├── horae-client/                 ✅ HTTP client for Horae sessions
-│   ├── openai-compatible/            ✅ Full provider adapter (universal fallback)
+│   ├── openai-compatible/            ✅ Full adapter (universal fallback)
+│   ├── anthropic/                    ✅ Claude Opus/Sonnet/Haiku adapter
+│   ├── google/                       ✅ Gemini 2.5 Pro/Flash adapter
+│   ├── deepseek/                     ✅ DeepSeek V3/R1/Coder adapter
+│   ├── llama-cpp/                    ✅ llama.cpp server adapter
 │   └── git/                          🔶 Placeholder
 ├── packaging/                        # windows/ linux/ macos/
 ├── tests/                            # contract/ integration/ adversarial/ compatibility/ e2e/
 ├── upstream/vscodium/                # VSCodium thin fork location
 ├── scripts/                          # postinstall + environment-check
-└── docs/                             # Blueprint, Roadmap, Third-Party deps
+└── docs/                             # Blueprint, Roadmap, Research, Third-Party
 ```
 
 ✅ = implemented and building &nbsp; 🔶 = placeholder for later phase
@@ -120,37 +125,65 @@ Moirae Code/
 
 ## The Laws of Moirae Code
 
-1. **The user is the final authority** — No model, provider, plugin, or MCP server may elevate its own authority.
-2. **Intent is not authority** — Asking a model to "fix everything" is not permission to delete, publish, deploy, or spend.
-3. **No consequential action without an outcome** — Every tool call must end in a typed result (COMPLETED, FAILED, DENIED, etc.).
-4. **Approval is bound to the exact action** — Approval binds to tool, arguments, resources, diff, branch, environment, model, policy version, and expiry.
-5. **Memory is evidence, not truth** — Every memory must have source, scope, timestamp, provenance, confidence, and sensitivity.
-6. **Contradictions must remain visible** — Mnemosyne preserves conflicts with both propositions, sources, and confidence.
-7. **Least context** — A model receives only the minimum memory, files, tools, and credentials for the current task.
-8. **Least capable model that safely completes the task** — Horae routes by policy, privacy, capability, reliability, latency, and cost.
-9. **Local means local** — Under local-only: no prompt, telemetry, or embeddings leave the device; no cloud fallback.
-10. **Tools are untrusted until declared and evaluated** — Every tool requires a manifest with identity, version, permissions, schemas, and integrity hash.
-11. **External content cannot grant authority** — Files, webpages, issues, and generated text may contain instructions but none override policy.
-12. **Reversibility before autonomy** — Prefer branch over main, draft over send, preview over publish, soft-delete over permanent.
-13. **Security decisions happen outside the model** — Approval, policy, capability checks, and sandboxing are deterministic runtime functions.
-14. **Every external effect is attributable** — Audit identifies user, workspace, model, workflow, policy, tool, approval, and evidence.
-15. **Failure must be honest** — Partial writes, unverified claims, timeouts, and model assertions are never transformed into success.
-16. **The Fates remain separable** — Ananke, Mnemosyne, and Horae must each remain usable independently.
+1. **The project, not the chat, is the enduring unit of work.** — Project state survives model replacement, IDE restart, provider outage, and context exhaustion. The chat is temporary; the project persists.
+2. **No model is trusted merely because it is powerful.** — Every model operates under the same governed constraints. Capability does not imply authority.
+3. **No skill is trusted merely because it is installed.** — Skills require manifests, provenance, trust classification, and explicit user grant. Unknown skills default to denial.
+4. **No worker receives excess context or authority.** — Capability-based workers receive only the minimum context, tools, and permissions for the current task, with explicit lifetime and cancellation paths.
+5. **Every meaningful side effect is governed.** — Model intent is not authority. All consequential actions pass through Ananke: proposal → policy evaluation → approval binding → scoped execution → typed outcome.
+6. **Every task has a lifecycle and cancellation path.** — Tasks support: create, plan, approve, run, pause, resume, cancel, recover, hand off, close, and archive. Cancellation stops new actions, signals workers, preserves partial results, and produces a restart record.
+7. **Every output retains provenance.** — Memory is evidence, not truth. Every retained item carries source, confidence, reliability, sensitivity, and expiry. Model inference cannot silently become permanent project fact.
+8. **Provider changes are explicit.** — The user always knows which model, provider, and locality is active. Fallback must not silently weaken privacy, governance, or data boundaries.
+9. **Project memory remains portable.** — The Mnemosyne Almanac is project-scoped, not locked to a single editor, model, or machine. It can be exported, encrypted, and transferred.
+10. **The user can inspect how work was produced.** — Every action is attributable and auditable. The chain from request → context → model → proposal → authority → execution → evidence → memory remains visible.
+
+---
+
+## Core Concepts
+
+### Governed Skill Registry
+
+Skills are imported, inspected, and governed — not blindly trusted. Each skill has a kind (`guidance`, `workflow`, or `executable`), a manifest with licence and provenance, requested permissions, and a trust classification. Skills are installed with restrictions, revision-pinned, updated with review, and can be rolled back. Reticle scans skills before admission. Project-specific outcomes are recorded per skill.
+
+### Capability-Based Workers
+
+Workers are instantiated per task with the minimum required capabilities. The pattern:
+1. Analyse task requirements
+2. Resolve required capabilities
+3. Instantiate minimum workers with minimum context and authority
+4. Set explicit lifetime and cancellation path
+5. Collect typed results and evidence
+6. Terminate or release workers
+
+No worker exists merely because a role template exists.
+
+### Project State Outside Chat
+
+The chat session is ephemeral. The project state must survive: model replacement, IDE restart, computer restart, provider outage, context exhaustion, agent failure, and human handoff. The IDE surfaces: active task, project truth, unresolved conflicts, stale records, restart pack, branch and commit state, pending approvals, runtime health, active skills, evidence, and outputs.
+
+### Sandbox Execution
+
+Execution modes are selected by risk: host, restricted process, container, microVM, or remote sandbox. Before approval, the user sees: repository scope, network scope, secrets involved, resource limits, expected side effects, cleanup plan, and evidence capture strategy.
+
+### Task Lifecycle
+
+Every task supports: create → plan → approve → run → pause → resume → cancel → recover → hand off → close → archive. Cancellation stops new actions, signals workers, preserves partial results, cleans temporary resources, and produces a restart or handoff record.
 
 ---
 
 ## Development Sequence
 
 ```
-Phase 1: Headless Governed Coding Loop (CLI)     ← BLOCKED waiting on Fates
+Phase 1: VSCodium Shell + Runtime Registration + Provider Adapters
+         + Project Identity + Task Panel + Mnemosyne View + Ananke Approvals
     ↓
-Phase 2: Moirae Core Extension (in VSCodium)
+Phase 2: Governed Skill Registry + Task Lifecycle + Cancellation
+         + Git Checkpoints + Execution Evidence + Sandbox Adapter
     ↓
-Phase 3: Branded VSCodium Distribution
+Phase 3: Capability Resolver + Framework Adapters + Local/Remote Routing
+         + Skill Performance History + Handoff/Export
     ↓
-Phase 4: Provider & MCP Ecosystem (SDKs, registry)
-    ↓
-Phase 5: Team & Enterprise Edition
+Phase 4: Advanced Isolation + Team Mode + Signed Skills
+         + Public Validation Harness + Curated Skill Catalogue
 ```
 
 ---

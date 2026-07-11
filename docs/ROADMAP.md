@@ -108,115 +108,73 @@
 
 ---
 
-## Phase Roadmap
+## Phase Roadmap (Revised — July 2026)
 
-### Phase 0 — Foundation (Current)
+> **Source:** `docs/MOIRAE_CODE_RESEARCH_AND_REQUIREMENTS.md` — Build Order
 
-**Goal:** All component runtimes reach minimum viable integration readiness.
+### Phase 1 — VSCodium Shell + Core IDE Surfaces
 
-| # | Task | Owner | Status | Blocks |
-|---|------|-------|--------|--------|
-| 0.1 | Ananke: production auth/RBAC for dashboard | Ananke | ❌ Not started | — |
-| 0.2 | Ananke: real MCP server validation beyond demo | Ananke | ❌ Not started | — |
-| 0.3 | Ananke: Agent SDK for Claude/GPT/Gemini | Ananke | ❌ Not started | Phase 1 |
-| 0.4 | Ananke: content-sensitive read governance design | Ananke | ❌ Not started | Phase 2 |
-| 0.5 | Mnemosyne: complete MCP server implementation | Mnemosyne | 🔄 In progress | Phase 1 |
-| 0.6 | Mnemosyne: complete Ananke adapter implementation | Mnemosyne | 🔄 In progress | Phase 1 |
-| 0.7 | Mnemosyne: validation report export (JSON/CSV) | Mnemosyne | ❌ Not started | — |
-| 0.8 | Mnemosyne: demo command (init→onboard→store→recall→context→conflict→score→decay→audit) | Mnemosyne | ❌ Not started | — |
-| 0.9 | Horae: Phase 0 — Contracts and Admission | Horae | ❌ Not started | Phase 1 |
-| 0.10 | Horae: Phase 1 — Secure Registry and Least-Capability Planner | Horae | ❌ Not started | Phase 1 |
-| 0.11 | Runtime Contracts: extend with workflow/model/context/tool proposal/approval/memory/audit/evidence/cancellation types | Runtime Contracts | ❌ Not started | All phases |
+**Goal:** VSCodium shell with runtime registration, provider adapters, project identity, and governed IDE panels.
 
-### Phase 1 — Headless Governed Coding Loop
+| # | Task | Depends On | Priority | Status |
+|---|------|-----------|----------|--------|
+| 1.1 | VSCodium thin fork: branding, default settings, Open VSX | — | 🔴 Critical | ❌ Not started |
+| 1.2 | Runtime registration: discover Ananke + Mnemosyne + Horae | Horae Phase 1 (external) | 🔴 Critical | ❌ Blocked |
+| 1.3 | Provider adapters: OpenAI, Anthropic, Google, DeepSeek, llama.cpp, Ollama | Provider SDK | 🔴 Critical | ✅ Done |
+| 1.4 | Project identity: workspace binding, root paths, multi-root | Runtime Contracts | 🔴 Critical | 🔶 Partial |
+| 1.5 | Task panel: active task, status, planned actions, blockers, token/cost/privacy | Core extension | 🔴 Critical | ❌ Not started |
+| 1.6 | Mnemosyne view: active memories, proposals, contradictions, source refs, accept/edit/reject/forget | Mnemosyne MCP (external) | 🔴 Critical | ❌ Blocked |
+| 1.7 | Ananke approval panel: pending approvals, policy profile, denied ops, revocation | Ananke HTTP API (external) | 🔴 Critical | ❌ Blocked |
+| 1.8 | Runtime panel: component health, connected models, MCP servers, local/network state | Supervisor | 🟡 High | 🔶 Partial |
+| 1.9 | Model/provider selector: model per message, defaults, fallback chains, cost limits, locality | Provider SDK | 🟡 High | 🔶 Partial |
+| 1.10 | Chat surface: custom webview with governance status header | Core extension | 🟡 High | ❌ Not started |
 
-**Goal:** Prove the full governed loop works through a CLI before building any IDE.
+### Phase 2 — Governed Skills + Task Lifecycle + Sandbox
 
-**Success criterion:** A CLI can accept a coding request, build Mnemosyne context, have a model propose actions through Horae, have Ananke evaluate every action, execute through a local tool runner, and produce typed outcomes + audit — all repeatable and validated.
+**Goal:** Governed skill registry, full task lifecycle, Git checkpoints, execution evidence, sandbox execution.
 
-| # | Task | Depends On | Priority | Estimated Effort |
-|---|------|-----------|----------|-----------------|
-| 1.1 | Horae runtime registry: discover, authenticate, verify protocol compatibility of Ananke + Mnemosyne | 0.9, 0.10 | 🔴 Critical | 2-3 weeks |
-| 1.2 | Horae capability planner: deterministic least-capability task plans | 0.10 | 🔴 Critical | 2-3 weeks |
-| 1.3 | Horae session orchestrator: start correlated session with shared identifiers | 1.1, 1.2 | 🔴 Critical | 2-3 weeks |
-| 1.4 | Horae ananke-binding: identity, health, policy, approval, execution routes | 0.3, 1.1 | 🔴 Critical | 1-2 weeks |
-| 1.5 | Horae mnemosyne-binding: identity, health, context packs, reliability/conflict signals | 0.5, 1.1 | 🔴 Critical | 1-2 weeks |
-| 1.6 | Implement end-to-end governed vertical slice (see Horae Phase 2) | 1.1-1.5 | 🔴 Critical | 3-4 weeks |
-| 1.7 | Horae testbench: incompatible protocols, forged identity, duplicate capabilities, stale events, replayed approvals, runtime restarts, lost safety signals | 1.6 | 🔴 Critical | 2-3 weeks |
-| 1.8 | CLI inspection, planning, session, and validation-report commands | 1.6 | 🟡 High | 1-2 weeks |
-| 1.9 | Export combined JSON/CSV validation reports | 1.6, 1.7 | 🟡 High | 1 week |
+| # | Task | Depends On | Priority | Status |
+|---|------|-----------|----------|--------|
+| 2.1 | Governed Skill Registry: import, inspect manifest, trust classification, revision pin, rollback, Reticle scanning | Tool SDK | 🔴 Critical | ❌ Not started |
+| 2.2 | Skill kinds: `guidance`, `workflow`, `executable` with per-kind trust rules | 2.1 | 🔴 Critical | ❌ Not started |
+| 2.3 | Task lifecycle: create → plan → approve → run → pause → resume → cancel → recover → hand off → close → archive | Horae (external) | 🔴 Critical | ❌ Blocked |
+| 2.4 | Cancellation: stop new actions, signal workers, preserve partial results, clean temp resources, produce restart record | 2.3, Ananke (external) | 🔴 Critical | ❌ Blocked |
+| 2.5 | Git checkpoints: branch, base commit, working tree, changed/staged/untracked, generated files, tests, conflicts | Git adapter | 🔴 Critical | ❌ Not started |
+| 2.6 | Execution evidence: typed results with input/output hashes, affected resources, metrics, timestamps | Ananke outcome engine | 🔴 Critical | 🔶 Partial |
+| 2.7 | Sandbox adapter: host, restricted process, container, microVM, remote sandbox modes | Network broker | 🟡 High | ❌ Not started |
+| 2.8 | Git governance: push, force-push, branch deletion, release creation governed by Ananke | 2.5, Ananke | 🟡 High | ❌ Not started |
+| 2.9 | Execution log: chronological audit stream per task | Ananke audit engine | 🟡 High | ❌ Not started |
+| 2.10 | Evidence viewer: diff review, command output, test results, side-effect summary | UI components | 🟡 High | ❌ Not started |
 
-### Phase 2 — Moirae Core Extension
+### Phase 3 — Capability Resolution + Routing + Handoff
 
-**Goal:** Build the first-party VS Code extension that connects the governed loop to the IDE, running initially in ordinary VSCodium.
+**Goal:** Capability resolver, framework adapters, local/remote routing, skill performance history, handoff and export.
 
-| # | Task | Depends On | Priority | Estimated Effort |
-|---|------|-----------|----------|-----------------|
-| 2.1 | Moirae Supervisor: process startup, service discovery, health, migrations, crash recovery, local session credentials, component version compatibility | Phase 1 | 🔴 Critical | 3-4 weeks |
-| 2.2 | Local IPC: authenticated JSON-RPC/MCP communication between extension and supervisor | 2.1 | 🔴 Critical | 2-3 weeks |
-| 2.3 | Chat surface: custom webview with model selector, policy status, memory scope, network state | 2.2 | 🔴 Critical | 3-4 weeks |
-| 2.4 | Approval UX: code-review quality diff review with resource/side-effect/validation display | 2.2, 1.4 | 🔴 Critical | 3-4 weeks |
-| 2.5 | Memory explorer: Mnemosyne sidebar view (active memories, proposals, contradictions, source refs, accept/edit/reject/forget) | 2.2, 1.5 | 🔴 Critical | 2-3 weeks |
-| 2.6 | Authority view: Ananke sidebar (pending approvals, policy profile, denied operations, session authority, revocation) | 2.2, 1.4 | 🟡 High | 2-3 weeks |
-| 2.7 | Runtime health view: component status, connected models, MCP servers, local/network state, DB health | 2.2, 1.3 | 🟡 High | 1-2 weeks |
-| 2.8 | Audit timeline view: chronological event stream per workspace | 2.2, 1.4 | 🟡 High | 1-2 weeks |
-| 2.9 | Model/provider configuration UI | 2.2 | 🟡 High | 1-2 weeks |
-| 2.10 | Diagnostics CLI: health checks, log collection, environment validation | 2.1 | 🟡 High | 1-2 weeks |
-| 2.11 | Secret broker: OS keychain integration (Windows Credential Manager, macOS Keychain, Linux libsecret) | 2.1 | 🟡 High | 1-2 weeks |
-| 2.12 | Network broker: outbound connection policy (blocked/loopback/provider-only/approved/unrestricted) | 2.1 | 🟡 High | 1-2 weeks |
+| # | Task | Depends On | Priority | Status |
+|---|------|-----------|----------|--------|
+| 3.1 | Capability resolver: analyse task → resolve required capabilities → instantiate minimum workers | Horae capability planner | 🔴 Critical | ❌ Blocked |
+| 3.2 | Capability-based workers: minimum context, minimum authority, lifetime, cancellation path, typed results | 3.1 | 🔴 Critical | ❌ Blocked |
+| 3.3 | Local/remote routing: explicit provider selection, cost limits, data residency, fallback policy | Provider SDK | 🔴 Critical | ✅ Done |
+| 3.4 | Provider abstraction: local models, direct APIs, OpenAI-compatible, enterprise gateways | Provider SDK | 🟡 High | ✅ Done |
+| 3.5 | Framework adapters: language/framework-specific skill packs | 2.2 | 🟡 High | ❌ Not started |
+| 3.6 | Skill performance history: per-skill, per-project outcome tracking | 2.1 | 🟢 Medium | ❌ Not started |
+| 3.7 | Handoff/export: portable project compendium, encrypted Almanac export | Mnemosyne | 🟢 Medium | ❌ Not started |
+| 3.8 | Provider-switch notice: explicit UI notification when model/provider changes | 3.3 | 🟡 High | ❌ Not started |
 
-### Phase 3 — Branded VSCodium Distribution
+### Phase 4 — Isolation + Team Mode + Public Validation
 
-**Goal:** Ship a complete, installable Moirae Code IDE with safe defaults.
+**Goal:** Advanced isolation, team/enterprise mode, signed skills, public validation harness, curated catalogue.
 
-| # | Task | Depends On | Priority | Estimated Effort |
-|---|------|-----------|----------|-----------------|
-| 3.1 | VSCodium thin fork: branding, icons, about dialog, default settings | — | 🔴 Critical | 2-3 weeks |
-| 3.2 | Bundle integration: supervisor auto-start, extension pre-installed | 2.1, 3.1 | 🔴 Critical | 2-3 weeks |
-| 3.3 | Safe default policies: workspace-scoped, local-first, approval-required for writes | 1.4 | 🔴 Critical | 1-2 weeks |
-| 3.4 | Curated extension set: selected Open VSX extensions pre-vetted | — | 🟡 High | 1-2 weeks |
-| 3.5 | Windows installer (MSI/EXE) with code signing | 3.1, 3.2 | 🟡 High | 2-3 weeks |
-| 3.6 | Linux installer (AppImage/deb) | 3.1, 3.2 | 🟢 Medium | 1-2 weeks |
-| 3.7 | macOS installer (DMG) with notarization | 3.1, 3.2 | 🟢 Medium | 1-2 weeks |
-| 3.8 | Auto-update service: signed update manifests, release channels, rollback | 3.2 | 🟢 Medium | 2-3 weeks |
-| 3.9 | Supply chain: SBOM, dependency scanning, secret scanning, license scanning, provenance attestations | 3.1 | 🟡 High | Ongoing |
-| 3.10 | First-run experience: onboarding wizard, model setup, policy profile selection | 2.3-2.9 | 🟡 High | 2-3 weeks |
-
-### Phase 4 — Provider and MCP Ecosystem
-
-**Goal:** Publish SDKs and adapters so third parties can add models, tools, and MCP servers.
-
-| # | Task | Depends On | Priority | Estimated Effort |
-|---|------|-----------|----------|-----------------|
-| 4.1 | Provider SDK: `ModelProvider` interface, streaming events, token counting, capability declarations, auth hooks, error normalization | Phase 2 | 🔴 Critical | 3-4 weeks |
-| 4.2 | Tool SDK: tool manifests, side-effect declarations, input/output schemas, evidence objects, compensation metadata, execution constraints | Phase 2 | 🔴 Critical | 2-3 weeks |
-| 4.3 | Ollama-compatible adapter | 4.1 | 🟡 High | 1 week |
-| 4.4 | llama.cpp server adapter | 4.1 | 🟡 High | 1 week |
-| 4.5 | LM Studio-compatible adapter | 4.1 | 🟢 Medium | 1 week |
-| 4.6 | Generic OpenAI-compatible adapter | 4.1 | 🔴 Critical | 1-2 weeks |
-| 4.7 | Anthropic adapter | 4.1 | 🟡 High | 1 week |
-| 4.8 | Google/Gemini adapter | 4.1 | 🟢 Medium | 1 week |
-| 4.9 | DeepSeek adapter | 4.1 | 🟢 Medium | 1 week |
-| 4.10 | Mistral adapter | 4.1 | 🟢 Medium | 1 week |
-| 4.11 | Manifest validator tool | 4.2 | 🟡 High | 1-2 weeks |
-| 4.12 | Extension API/SDK for third-party extensions | Phase 2 | 🟢 Medium | 3-4 weeks |
-| 4.13 | Self-hosted Open VSX registry (curated Moirae extensions) | — | 🟢 Medium | 4-6 weeks |
-| 4.14 | Compatibility test harness for providers and tools | 4.1, 4.2 | 🟡 High | 2-3 weeks |
-
-### Phase 5 — Team & Enterprise Edition
-
-**Goal:** Enable managed team deployments with centralized governance.
-
-| # | Task | Depends On | Priority | Estimated Effort |
-|---|------|-----------|----------|-----------------|
-| 5.1 | Organisation identity: OIDC + SAML via identity broker | — | 🟢 Medium | 4-6 weeks |
-| 5.2 | Signed enterprise policy bundles (admin-distributed) | Phase 3 | 🟢 Medium | 2-3 weeks |
-| 5.3 | Shared team Almanac (approved memory, team decisions, policies) | Phase 3 | 🟢 Medium | 3-4 weeks |
-| 5.4 | Team audit export and compliance reporting | Phase 3 | 🟢 Medium | 2-3 weeks |
-| 5.5 | Managed model gateway (enterprise provider routing) | Phase 4 | 🟢 Medium | 3-4 weeks |
-| 5.6 | Enterprise MCP identity and authorization | — | 🟢 Medium | 3-4 weeks |
-| 5.7 | Central extension governance (allow/deny, version pinning) | Phase 4 | 🟢 Medium | 2-3 weeks |
-| 5.8 | Encrypted settings synchronization (optional Moirae account) | Phase 3 | 🟢 Medium | 2-3 weeks |
+| # | Task | Depends On | Priority | Status |
+|---|------|-----------|----------|--------|
+| 4.1 | Advanced isolation: container, microVM, remote sandbox enforcement | 2.7 | 🔴 Critical | ❌ Not started |
+| 4.2 | Team mode: shared policies, team Almanac, managed model gateways | Phase 3 | 🟡 High | ❌ Not started |
+| 4.3 | Signed skills: cryptographic verification of skill manifests and integrity | 2.1 | 🟡 High | ❌ Not started |
+| 4.4 | Public validation harness: downloadable test suite for community testing | Testbench | 🟡 High | ❌ Not started |
+| 4.5 | Curated skill catalogue: governed, reviewed, classified skill marketplace | 2.1, 4.3 | 🟢 Medium | ❌ Not started |
+| 4.6 | Enterprise MCP identity and authorization | MCP spec | 🟢 Medium | ❌ Not started |
+| 4.7 | Central extension governance: allow/deny, version pinning, quarantine | Extension policy | 🟢 Medium | ❌ Not started |
+| 4.8 | Organisation identity: OIDC + SAML via identity broker | — | 🟢 Medium | ❌ Not started |
 
 ---
 
@@ -238,12 +196,14 @@
 |----|---------------|------------|
 | ~~B-02~~ | No Provider SDK | ✅ `@moirae/provider-sdk` built with full ModelProvider interface + streaming events |
 | ~~B-06~~ | No shared IPC protocol | ✅ `@moirae/local-ipc` built with JSON-RPC 2.0 message types + transport interface |
-| ~~Provider adapters~~ | No model adapters | ✅ `@moirae/provider-openai-compatible` fully functional (universal fallback for Ollama, llama.cpp, LM Studio, vLLM) |
-| ~~Tool SDK~~ | No tool manifest types | ✅ `@moirae/tool-sdk` built with Zod-validated manifests, 8 risk classes, 8 side-effect classes |
+| ~~Provider adapters~~ | No model adapters | ✅ 5 adapters built: OpenAI-compatible, Anthropic (Claude), Google (Gemini), DeepSeek, llama.cpp |
+| ~~Tool SDK~~ | No tool manifest types | ✅ `@moirae/tool-sdk` built with Zod-validated manifests, 8 risk classes, 8 side-effect classes, ManifestValidator |
 | ~~Policy profiles~~ | No default policy configs | ✅ `@moirae/policy-profiles` built with Standard + Strict profiles |
-| ~~Secret handling~~ | No credential abstraction | ✅ `@moirae/secret-broker` built |
-| ~~Network control~~ | No outbound policy | ✅ `@moirae/network-broker` built |
-| ~~Supervisor~~ | No process lifecycle | ✅ `@moirae/supervisor` scaffolded |
+| ~~Secret handling~~ | No credential abstraction | ✅ `@moirae/secret-broker` built with InMemorySecretBroker |
+| ~~Network control~~ | No outbound policy | ✅ `@moirae/network-broker` built with 5-level NetworkMode |
+| ~~Supervisor~~ | No process lifecycle | ✅ `@moirae/supervisor` built with health checks, crash recovery, 7-state lifecycle |
+| ~~Moirae types~~ | No supervisor/packaging/update types | ✅ `@moirae/runtime-contracts/src/moirae/` with SupervisorConfig, PackagingManifest, UpdateManifest, ExtensionPolicy |
+| ~~Tests~~ | No contract/adversarial tests | ✅ 69 tests passing: 25 runtime-contracts + 16 validator + 10 supervisor + 18 adversarial |
 
 ### Next Tasks Once Unblocked (Priority Order)
 
@@ -258,59 +218,56 @@ When the external repos reach minimum viable state, the immediate work is:
 | 5 | End-to-end governed vertical slice (CLI demo) | `apps/diagnostics-cli/` | Tasks 1-4 |
 | 6 | Export combined JSON/CSV validation reports | `scripts/` | Task 5 |
 
-### What Can Be Done Now (Unblocked Work)
+### What Can Be Done Now (Unblocked Work — Updated July 2026)
 
-While waiting on the external repos, the Moirae monorepo can advance on:
+While waiting on the external repos, the Moirae monorepo has completed:
 
-- **`@moirae/runtime-contracts`** — add Moirae-specific types not covered by external Runtime Contracts (supervisor configs, packaging metadata, update manifest types)
-- **`@moirae/provider-sdk`** — add Anthropic, Google, DeepSeek provider adapters following the same pattern as OpenAI-compatible
-- **`@moirae/tool-sdk`** — implement manifest validator, evidence object validation
-- **`tests/contract/`** — write contract tests for all package interfaces
-- **`tests/adversarial/`** — write malicious scenario tests (prompt injection, path traversal, tool poisoning)
-- **`@moirae/ui-components`** — design approval card, diff review, memory card, audit timeline React components
-- **`@moirae/supervisor`** — implement health check polling, crash recovery, migration logic (currently stubs)
-- **Docs** — threat model, extension policy guide, provider integration guide
+- ✅ `@moirae/provider-sdk` — 5 provider adapters: OpenAI-compatible, Anthropic, Google, DeepSeek, llama.cpp
+- ✅ `@moirae/tool-sdk` — ManifestValidator with risk scoring, publisher trust, and integrity checks
+- ✅ `@moirae/runtime-contracts` — Moirae-specific types: SupervisorConfig, PackagingManifest, UpdateManifest, ExtensionPolicy
+- ✅ `@moirae/supervisor` — Health check polling, crash recovery with 3-tier escalation, 7-state component lifecycle
+- ✅ 69 contract + adversarial tests passing across 4 suites
 
-### Critical Path (Minimum Viable Moirae Code)
+Still available to work on:
+
+- **`@moirae/tool-sdk`** — Skill manifest types (`SkillKind`: `guidance`, `workflow`, `executable`), skill registry types
+- **`@moirae/provider-sdk`** — Additional adapters (Mistral, Ollama native, LM Studio)
+- **`@moirae/ui-components`** — Design task panel, memory panel, approvals panel, runtime panel, skill registry, execution log, evidence viewer React components
+- **`tests/contract/`** — Provider adapter contract tests
+- **`tests/adversarial/`** — Skill injection, worker escape, sandbox bypass scenarios
+- **`packages/skill-registry/`** — New package: skill import, manifest inspection, trust classification, Reticle scanning scaffold
+- **Docs** — Threat model, skill author guide, provider integration guide
+
+### Critical Path (Revised for Research Build Order)
 
 ```
-Runtime Contracts extension (B-07)
+Phase 1 Dependencies (external):
+  Horae Runtime Registry → Runtime Contracts workflow types → Ananke production auth
+                              ↓
+Phase 1: VSCodium Shell + Core IDE Surfaces ← FIRST MILESTONE
     ↓
-Horae Phase 0: Contracts and Admission (B-01)
+Phase 2: Governed Skills + Task Lifecycle + Sandbox
     ↓
-Horae Phase 1: Registry + Capability Planner (B-01)
+Phase 3: Capability Resolver + Routing + Handoff
     ↓
-Mnemosyne MCP + Ananke adapter complete (B-03, B-04)
-    ↓
-Horae Phase 2: Governed Vertical Slice (B-01)
-    ↓
-Phase 1: Headless Governed Coding Loop ← FIRST MILESTONE
-    ↓
-Moirae Supervisor + Local IPC (B-06)
-    ↓
-Moirae Core Extension ← SECOND MILESTONE
-    ↓
-Branded VSCodium Distribution ← THIRD MILESTONE
+Phase 4: Advanced Isolation + Team Mode + Public Validation
 ```
 
-### Dependency Graph
+### Dependency Graph (Revised)
 
 ```mermaid
 graph TD
-    RC[Runtime Contracts v1.1+] --> H[Horae Phase 0-1]
-    RC --> A[Ananke additions]
-    RC --> M[Mnemosyne additions]
-    
-    H --> P1[Phase 1: Headless Loop]
+    RC[Runtime Contracts v1.1+] --> H[Horae Runtime Registry]
+    RC --> A[Ananke Production Hardening]
+    RC --> M[Mnemosyne MCP + Ananke Adapter]
+
+    H --> P1[Phase 1: VSCodium Shell + IDE Surfaces]
     A --> P1
     M --> P1
-    
-    P1 --> S[Moirae Supervisor]
-    S --> E[Moirae Core Extension]
-    E --> D[Branded Distribution]
-    
-    D --> P4[Phase 4: Provider SDK]
-    P4 --> P5[Phase 5: Enterprise]
+
+    P1 --> P2[Phase 2: Skills + Lifecycle + Sandbox]
+    P2 --> P3[Phase 3: Capability Resolver + Routing]
+    P3 --> P4[Phase 4: Isolation + Team + Validation]
 ```
 
 ---
