@@ -57,7 +57,7 @@ export interface DeepSeekConfig {
 }
 
 export class DeepSeekProvider extends OpenAICompatibleProvider {
-  readonly manifest: ProviderManifest = {
+  override readonly manifest: ProviderManifest = {
     id: 'deepseek',
     displayName: 'DeepSeek',
     locality: 'remote',

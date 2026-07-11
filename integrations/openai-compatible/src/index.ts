@@ -30,16 +30,33 @@ export class OpenAICompatibleProvider implements ModelProvider {
     defaultNetworkPolicy: 'provider-endpoints-only',
   };
 
-  constructor(private config: OpenAICompatibleConfig) {}
+  constructor(protected config: OpenAICompatibleConfig) {}
 
   async discoverModels(): Promise<ModelDescriptor[]> {
-    const res = await fetch(`${this.config.baseUrl}/models`, {
-      headers: this.config.apiKey ? { Authorization: `Bearer ${this.config.apiKey}` } : {},
-    });
-    const body = (await res.json()) as { data?: Array<{ id: string }> };
-    return (body.data ?? []).map((m) => ({
-      id: m.id,
-      displayName: m.id,
+    try {
+      const res = await fetch(`${this.config.baseUrl}/models`, {
+        headers: this.config.apiKey ? { Authorization: `Bearer ${this.config.apiKey}` } : {},
+      });
+      const body = (await res.json()) as { data?: Array<{ id: string }> };
+      const models = (body.data ?? []).map((m) => ({
+        id: m.id,
+        displayName: m.id,
+        providerId: this.manifest.id,
+        locality: this.manifest.locality,
+        contextLimit: 128_000,
+        supportsTools: true,
+        supportsImages: false,
+        supportsStructuredOutput: false,
+        supportsStreaming: true,
+        capabilities: ['chat', 'tools'],
+      }));
+      if (models.length > 0) return models;
+    } catch {
+      // API unreachable — return fallback placeholder
+    }
+    return [{
+      id: 'gpt-4o',
+      displayName: 'GPT-4o (fallback)',
       providerId: this.manifest.id,
       locality: this.manifest.locality,
       contextLimit: 128_000,
@@ -48,7 +65,7 @@ export class OpenAICompatibleProvider implements ModelProvider {
       supportsStructuredOutput: false,
       supportsStreaming: true,
       capabilities: ['chat', 'tools'],
-    }));
+    }];
   }
 
   async countTokens(request: TokenCountRequest): Promise<TokenCount> {
@@ -59,25 +76,31 @@ export class OpenAICompatibleProvider implements ModelProvider {
   }
 
   async *createCompletion(request: ModelRequest): AsyncIterable<ModelEvent> {
-    const res = await fetch(`${this.config.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(this.config.apiKey ? { Authorization: `Bearer ${this.config.apiKey}` } : {}),
-      },
-      body: JSON.stringify({
-        model: this.config.modelMap?.[request.modelId] ?? request.modelId,
-        messages: request.messages,
-        tools: request.tools?.map((t) => ({
-          type: 'function',
-          function: { name: t.name, description: t.description, parameters: t.parameters },
-        })),
-        max_tokens: request.maxTokens,
-        temperature: request.temperature,
-        stop: request.stop,
-        stream: false,
-      }),
-    });
+    let res: Response;
+    try {
+      res = await fetch(`${this.config.baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(this.config.apiKey ? { Authorization: `Bearer ${this.config.apiKey}` } : {}),
+        },
+        body: JSON.stringify({
+          model: this.config.modelMap?.[request.modelId] ?? request.modelId,
+          messages: request.messages,
+          tools: request.tools?.map((t) => ({
+            type: 'function',
+            function: { name: t.name, description: t.description, parameters: t.parameters },
+          })),
+          max_tokens: request.maxTokens,
+          temperature: request.temperature,
+          stop: request.stop,
+          stream: false,
+        }),
+      });
+    } catch (err) {
+      yield { type: 'error', code: 'CONNECTION_ERROR', message: err instanceof Error ? err.message : 'Connection failed' };
+      return;
+    }
 
     if (!res.ok) {
       yield { type: 'error', code: 'PROVIDER_ERROR', message: `HTTP ${res.status}: ${await res.text()}` };

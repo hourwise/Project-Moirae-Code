@@ -16,6 +16,11 @@
     { "path": "integrations/mnemosyne-client" },
     { "path": "integrations/horae-client" },
     { "path": "integrations/openai-compatible" },
+    { "path": "integrations/anthropic" },
+    { "path": "integrations/google" },
+    { "path": "integrations/deepseek" },
+    { "path": "integrations/llama-cpp" },
+    { "path": "integrations/mistral" },
     { "path": "apps/diagnostics-cli" },
     { "path": "apps/moirae-core-extension" }
   ]

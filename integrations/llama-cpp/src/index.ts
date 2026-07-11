@@ -14,7 +14,7 @@ export interface LlamaCppConfig {
 }
 
 export class LlamaCppProvider extends OpenAICompatibleProvider {
-  readonly manifest: ProviderManifest = {
+  override readonly manifest: ProviderManifest = {
     id: 'llama-cpp',
     displayName: 'llama.cpp',
     locality: 'local',
