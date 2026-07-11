@@ -27,9 +27,9 @@ export const RuntimeNameSchema = z.enum([
  * Each runtime must expose a RuntimeIdentity so orchestrators can answer "who are you?"
  */
 export const RuntimeIdentitySchema = z.object({
-  runtime: z.string(),
-  version: z.string(),
-  protocolVersion: z.string(),
+  runtime: z.string().min(1),
+  version: z.string().min(1),
+  protocolVersion: z.string().min(1),
   minimumProtocolVersion: z.string().optional(),
   instanceId: z.string().optional(),
   displayName: z.string().optional(),

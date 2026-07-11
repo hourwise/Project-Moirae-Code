@@ -7,3 +7,4 @@ export * from './results/index.js';
 export * from './audit/index.js';
 export * from './protocol/index.js';
 export * from './constants/index.js';
+export * from './moirae/index.js';

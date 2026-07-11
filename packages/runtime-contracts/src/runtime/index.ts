@@ -51,7 +51,7 @@ export enum RuntimeHealthStatus {
 export const RuntimeHealthSchema = z.object({
   healthy: z.boolean(),
   status: z.nativeEnum(RuntimeHealthStatus).optional(),
-  uptimeMs: z.number(),
+  uptimeMs: z.number().nonnegative(),
   warnings: z.array(z.string()),
   activeSessions: z.number().int().nonnegative().optional(),
 });

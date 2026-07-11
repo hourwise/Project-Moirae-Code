@@ -1,0 +1,20 @@
+{
+  "name": "@moirae/provider-llama-cpp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "llama.cpp server model provider adapter — local inference via llama.cpp HTTP server",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc --build",
+    "clean": "rimraf dist",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@moirae/runtime-contracts": "*",
+    "@moirae/provider-sdk": "*"
+  }
+}

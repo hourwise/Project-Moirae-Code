@@ -82,3 +82,18 @@ export interface ToolEvidence {
   affectedResources: string[];
   metrics: Record<string, number>;
 }
+
+// ── Validator ───────────────────────────────────────────────
+
+export {
+  ManifestValidator,
+  ValidationErrorCode,
+  ValidationWarningCode,
+  PublisherTrust,
+} from './validator.js';
+
+export type {
+  ManifestValidationResult,
+  ManifestValidationError,
+  ManifestValidationWarning,
+} from './validator.js';
