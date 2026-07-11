@@ -1,0 +1,21 @@
+{
+  "name": "@moirae/skill-registry",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Governed Skill Registry — import, inspect, trust-classify, install, pin, update, rollback skills with Reticle scanning",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc --build",
+    "clean": "rimraf dist",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@moirae/runtime-contracts": "*",
+    "@moirae/tool-sdk": "*",
+    "zod": "^3.24.0"
+  }
+}

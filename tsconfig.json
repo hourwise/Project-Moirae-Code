@@ -2,6 +2,7 @@
   "files": [],
   "references": [
     { "path": "packages/runtime-contracts" },
+    { "path": "packages/skill-registry" },
     { "path": "packages/local-ipc" },
     { "path": "packages/provider-sdk" },
     { "path": "packages/tool-sdk" },
