@@ -1,0 +1,58 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+*.tsbuildinfo
+.tsbuildinfo
+
+# IDE
+.vscode/settings.json
+*.code-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+logs/
+
+# Test artifacts
+coverage/
+validation-reports/
+test-results/
+
+# SQLite databases (runtime-generated, not tracked)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+.project-moirae/
+
+# Packaging artifacts
+packaging/**/build/
+packaging/**/dist/
+*.msi
+*.exe
+*.dmg
+*.AppImage
+*.deb
+
+# Secrets (never commit)
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+
+# Temporary
+tmp/
+temp/
+.cache/

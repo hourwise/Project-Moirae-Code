@@ -1,0 +1,23 @@
+{
+  "name": "@moirae/supervisor",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Moirae Supervisor — process lifecycle, health, service discovery, migrations, crash recovery",
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc --build",
+    "clean": "rimraf dist",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@moirae/runtime-contracts": "*",
+    "@moirae/local-ipc": "*",
+    "@moirae/policy-profiles": "*",
+    "@moirae/secret-broker": "*",
+    "@moirae/network-broker": "*"
+  }
+}

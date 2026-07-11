@@ -1,0 +1,15 @@
+{
+  "name": "@moirae/network-broker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Outbound connection policy enforcement — blocked, loopback-only, provider-endpoints, approved-domains",
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc --build",
+    "clean": "rimraf dist",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  }
+}

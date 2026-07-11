@@ -1,0 +1,7 @@
+{
+  "name": "@moirae/scripts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Moirae development and CI scripts — environment check, postinstall, validation",
+  "type": "module"
+}

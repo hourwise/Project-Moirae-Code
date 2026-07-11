@@ -1,0 +1,43 @@
+{
+  "name": "moirae-code",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Moirae Code — A local-first, model-agnostic, governed coding environment",
+  "repository": "https://github.com/hourwise/Project-Moirae-Code",
+  "license": "MIT",
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "integrations/*"
+  ],
+  "scripts": {
+    "build": "tsc --build",
+    "build:watch": "tsc --build --watch",
+    "clean": "tsc --build --clean",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint . --ext .ts,.tsx",
+    "format": "prettier --write \"**/*.{ts,tsx,json,md}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,json,md}\"",
+    "validate:env": "node scripts/environment-check.mjs",
+    "validate:quick": "npm run build && npm test",
+    "validate:full": "npm run build && npm test && npm run lint && npm run format:check",
+    "postinstall": "node scripts/postinstall.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0",
+    "@vitest/coverage-v8": "^3.0.0",
+    "eslint": "^9.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "prettier": "^3.4.0",
+    "tsx": "^4.19.0",
+    "rimraf": "^6.0.0"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

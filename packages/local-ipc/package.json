@@ -1,0 +1,18 @@
+{
+  "name": "@moirae/local-ipc",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Authenticated local IPC between Moirae extension and supervisor using JSON-RPC over stdio/domain socket",
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc --build",
+    "clean": "rimraf dist",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@moirae/runtime-contracts": "*"
+  }
+}

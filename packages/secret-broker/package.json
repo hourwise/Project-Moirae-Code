@@ -1,0 +1,15 @@
+{
+  "name": "@moirae/secret-broker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OS-keychain abstraction for API keys and OAuth tokens — never stored in settings, repos, or SQLite",
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc --build",
+    "clean": "rimraf dist",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "@moirae/diagnostics-cli",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Moirae diagnostics CLI — health checks, environment validation, log collection, component status",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "bin": {
+    "moirae-diag": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "clean": "rimraf dist",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@moirae/runtime-contracts": "*",
+    "@moirae/supervisor": "*"
+  }
+}

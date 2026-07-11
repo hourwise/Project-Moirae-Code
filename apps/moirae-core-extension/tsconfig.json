@@ -1,0 +1,20 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "tsBuildInfoFile": "dist/.tsbuildinfo",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "target": "ES2022"
+  },
+  "include": ["src"],
+  "references": [
+    { "path": "../../packages/runtime-contracts" },
+    { "path": "../../packages/local-ipc" },
+    { "path": "../../packages/provider-sdk" },
+    { "path": "../../packages/tool-sdk" },
+    { "path": "../../packages/policy-profiles" },
+    { "path": "../../packages/ui-components" }
+  ]
+}

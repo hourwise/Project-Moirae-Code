@@ -1,0 +1,1336 @@
+Moirae Code — proposed product blueprint
+
+Moirae Code should be a governed, model-agnostic coding environment built from VSCodium, with Ananke, Mnemosyne and Horae running as independent local services.
+
+It is not merely “VSCodium bundled with three MCP servers.” Its defining feature is that every model interaction, tool call, memory operation and consequential action passes through a visible, enforceable runtime contract.
+
+The product promise is:
+
+Use almost any coding model, local or hosted, without surrendering control of what it remembers, what it can access, or what it is allowed to do.
+
+1. The overall stack
+Desktop shell
+Layer	Proposed technology	Purpose
+Editor foundation	VSCodium / Code-OSS	Editing, terminal, Git UI, debugging, extension host
+Desktop runtime	Electron, inherited from Code-OSS	Cross-platform desktop application
+Moirae integration	First-party VS Code extension	Sidebar, chat, approvals, memory and audit UI
+Local control plane	Node.js 22+ / TypeScript	Starts and supervises the Fates
+Internal communication	JSON-RPC/MCP over stdio or local IPC	Local, authenticated component communication
+Persistent state	SQLite WAL	Policies, audit, model registry, approvals, workspace metadata
+Memory storage	Local files plus SQLite indexes	Mnemosyne Compendium
+Secrets	OS keychain	API keys and OAuth refresh tokens
+Packaging	Platform installers	Windows first, then Linux and macOS
+
+VSCodium is a suitable foundation because it builds open-source binaries from Microsoft’s Code-OSS source and uses Open VSX rather than Microsoft’s restricted extension marketplace. Open VSX can also be self-hosted later for a curated Moirae extension registry.
+
+The Fates
+Ananke — authority and outcome control
+
+Ananke answers:
+
+May this action happen?
+Does it require approval?
+Is the approval still valid?
+What exactly happened?
+Was the result completed, denied, partial, stale or failed?
+What evidence exists?
+
+Ananke owns:
+
+policy decisions;
+risk classification;
+approval binding;
+outcome envelopes;
+immutable audit events;
+tool-call constraints;
+rollback and compensation metadata.
+Mnemosyne — controlled project memory
+
+Mnemosyne answers:
+
+What should the model know?
+Where did that knowledge come from?
+How reliable and current is it?
+Does it contradict something else?
+May it be included in this context?
+What should be forgotten, decayed or revalidated?
+
+Mnemosyne owns:
+
+project onboarding;
+memory extraction;
+provenance;
+confidence and reliability scoring;
+contradiction detection;
+memory ageing and decay;
+context-pack construction;
+secrets and sensitive-content exclusion;
+project-local memory boundaries.
+Horae — orchestration and model mediation
+
+Horae answers:
+
+Which model should handle this request?
+Which tools and memories may it receive?
+What execution plan should be followed?
+Does a local or cloud model satisfy the task and policy?
+How are retries, fallbacks and context limits handled?
+
+Horae owns:
+
+model-provider adapters;
+chat-session orchestration;
+prompt and context assembly;
+model capability discovery;
+token budgets;
+fallback routing;
+tool-loop execution;
+MCP server discovery;
+workflow state;
+interruption, resumption and cancellation.
+
+Horae must never bypass Ananke. It proposes and coordinates; Ananke authorises.
+
+2. Recommended architecture
+┌──────────────────────────────────────────────────────────────┐
+│                      MOIRAE CODE UI                          │
+│                                                              │
+│  Editor │ Terminal │ Git │ Chat │ Memory │ Approvals │ Audit │
+└──────────────────────────────┬───────────────────────────────┘
+                               │ VS Code Extension API
+┌──────────────────────────────▼───────────────────────────────┐
+│                 MOIRAE CORE EXTENSION                        │
+│                                                              │
+│ Commands · Views · Chat Surface · Diff Review · Notifications│
+│ Workspace Trust · Secret Storage Client · Status Indicators  │
+└──────────────────────────────┬───────────────────────────────┘
+                               │ authenticated local IPC
+┌──────────────────────────────▼───────────────────────────────┐
+│                    MOIRAE SUPERVISOR                          │
+│                                                              │
+│ Process lifecycle · health · versions · migrations · recovery│
+│ Local API broker · session identity · configuration          │
+└──────────────┬──────────────────┬───────────────────┬────────┘
+               │                  │                   │
+       ┌───────▼───────┐  ┌──────▼────────┐  ┌──────▼────────┐
+       │     HORAE     │  │    ANANKE     │  │  MNEMOSYNE   │
+       │ Orchestration │  │ Authority     │  │ Memory        │
+       │ Model routing │  │ Policy/audit  │  │ Provenance    │
+       └───────┬───────┘  └──────▲────────┘  └──────▲────────┘
+               │                 │                   │
+               └────────┬────────┴─────────┬─────────┘
+                        │                  │
+               ┌────────▼────────┐  ┌─────▼────────────┐
+               │ Tool/MCP Broker │  │ Model Providers  │
+               │ Git, FS, shell, │  │ Local / hosted   │
+               │ browser, APIs   │  │ user-selected    │
+               └────────┬────────┘  └──────────────────┘
+                        │
+               ┌────────▼──────────────────────────────┐
+               │ External systems and user workspaces  │
+               └───────────────────────────────────────┘
+Critical boundary
+
+The model must never directly possess unrestricted filesystem, shell, Git, network or credential access.
+
+The required path is:
+
+User request
+  → Horae creates a proposed operation
+  → Ananke evaluates authority and current state
+  → approval if required
+  → tool broker executes the narrowly scoped action
+  → Ananke records the outcome
+  → Mnemosyne optionally records an eligible memory
+  → UI presents the result and evidence
+
+This is the heart of Moirae Code.
+
+3. The Laws of Moirae Code
+
+These should be normative, testable product laws rather than marketing principles.
+
+Law I — The user is the final authority
+
+No model, provider, plugin, MCP server or workflow may elevate its own authority.
+
+Administrative policy may restrict what the user can authorise in managed environments, but no component may silently grant itself more power.
+
+Law II — Intent is not authority
+
+A user asking a model to “fix everything” is not equivalent to permission to:
+
+delete files;
+publish code;
+rotate credentials;
+deploy;
+spend money;
+alter permissions;
+send external communications;
+modify production data.
+
+Intent must be converted into explicit, scoped proposed operations.
+
+Law III — No consequential action without an outcome
+
+Every tool call must end in a typed result such as:
+
+COMPLETED
+FAILED
+DENIED
+WAITING_FOR_APPROVAL
+APPROVAL_INVALIDATED
+STALE_STATE
+TIMED_OUT
+PARTIAL_SUCCESS
+CANCELLED
+COMPENSATION_REQUIRED
+
+Plain text such as “done” is not sufficient evidence.
+
+Law IV — Approval is bound to the exact action
+
+Approval must bind to:
+
+tool identity;
+arguments;
+affected resources;
+content or diff;
+repository and branch;
+environment;
+requesting model;
+policy version;
+relevant state hash;
+expiration time.
+
+Any material mutation invalidates approval.
+
+Law V — Memory is evidence, not truth
+
+Every retained memory must have:
+
+source;
+project scope;
+timestamp;
+provenance;
+confidence;
+reliability;
+sensitivity;
+expiry or review status.
+
+A model inference cannot silently become a permanent project fact.
+
+Law VI — Contradictions must remain visible
+
+Mnemosyne must not overwrite inconvenient or conflicting information.
+
+It should preserve the conflict and identify:
+
+both propositions;
+their sources;
+relative freshness;
+confidence;
+any chosen working assumption.
+Law VII — Least context
+
+A model receives only the minimum memory, files, tools and credentials required for the current task.
+
+A repository-wide request does not automatically justify access to the user’s other repositories, home directory, browser sessions or cloud accounts.
+
+Law VIII — Least capable model that safely completes the task
+
+Horae should route according to:
+
+policy and privacy;
+task capability;
+context requirements;
+reliability;
+latency;
+cost.
+
+Cost must never override a security restriction or a user’s local-only requirement.
+
+Law IX — Local means local
+
+Under local-only mode:
+
+no prompt leaves the device;
+no telemetry leaves the device;
+no cloud embeddings are generated;
+no remote extension or model is silently used;
+no fallback to a hosted provider occurs.
+
+Failure must remain a visible failure, not trigger covert cloud escalation.
+
+Law X — Tools are untrusted until declared and evaluated
+
+A tool description is not proof of behaviour.
+
+Every tool requires a manifest containing:
+
+identity and version;
+publisher;
+executable or endpoint;
+declared permissions;
+input and output schemas;
+side-effect classification;
+network destinations;
+data handling;
+integrity hash;
+signature status.
+
+Unknown capabilities default to denial or isolation.
+
+Law XI — External content cannot grant authority
+
+Repository files, webpages, issues, comments, tool responses and generated text may contain instructions, but none may:
+
+override policy;
+approve actions;
+expose secrets;
+expand scope;
+activate new tools.
+
+This directly addresses prompt injection and tool-description injection.
+
+Law XII — Reversibility before autonomy
+
+Where practical, Moirae should prefer:
+
+branch over direct main modification;
+draft over send;
+preview over publish;
+soft delete over permanent delete;
+staged diff over blind write;
+test environment over production;
+reversible migration over destructive migration.
+Law XIII — Security decisions happen outside the model
+
+The model may explain risk, but it cannot be the security boundary.
+
+Approval, policy, capability checks, secret access and sandboxing must be deterministic runtime functions.
+
+Law XIV — Every external effect is attributable
+
+The audit record must identify:
+
+initiating user;
+active workspace;
+originating model/provider;
+Horae workflow;
+Ananke policy decision;
+tool and version;
+approval identity;
+inputs and hashes;
+affected resources;
+timestamps;
+result and evidence.
+Law XV — Failure must be honest
+
+Moirae may not transform:
+
+a partial write into success;
+an unverified claim into completion;
+a timeout into assumed success;
+an unavailable test into a passed test;
+a model assertion into execution evidence.
+Law XVI — The Fates remain separable
+
+Ananke, Mnemosyne and Horae must each remain usable independently.
+
+Moirae Code composes them; it must not turn them into inseparable editor internals.
+
+This preserves their value as:
+
+standalone MCP infrastructure;
+embeddable SDKs;
+headless services;
+components usable by other IDEs or automation products.
+4. How Moirae Code should look
+Main editor
+
+The editor should remain recognisably VS Code/VSCodium. Do not redesign the code editor itself unnecessarily.
+
+The unique Moirae experience belongs in:
+
+the primary or secondary sidebar;
+the chat panel;
+diff and approval surfaces;
+status indicators;
+workflow and audit views.
+
+VS Code-compatible extensions can contribute sidebar views, panels, tree views, commands and webview views. Fully custom webviews are available, although official guidance recommends using them only where native views are insufficient.
+
+Left activity bar
+
+One Moirae icon opens a container with four views:
+
+Thread
+
+Current workflow:
+
+objective;
+active model;
+current stage;
+planned actions;
+blockers;
+tool activity;
+token/cost/privacy status.
+Memory
+
+Mnemosyne view:
+
+active memories;
+newly proposed memories;
+contradictions;
+stale items;
+source references;
+accept, edit, reject or forget controls.
+Authority
+
+Ananke view:
+
+pending approvals;
+current policy profile;
+recently denied operations;
+authority granted to this session;
+revocation controls.
+Runtime
+
+Health and infrastructure:
+
+Ananke status;
+Mnemosyne status;
+Horae status;
+connected models;
+connected MCP servers;
+local-only/network state;
+database and audit health.
+Chat
+
+Moirae needs its own first-party chat surface. Depending on upstream compatibility, it can use either:
+
+a native-compatible chat participant/provider; or
+a dedicated Moirae webview chat panel.
+
+Current VS Code APIs support chat participants and custom language-model providers, including a one-provider-to-many-models pattern. That is conceptually suitable for Horae’s provider registry. However, Moirae should keep a fallback first-party webview so the product is not dependent on a proprietary chat extension or a particular vendor’s entitlement.
+
+The chat header should always display:
+
+Model: DeepSeek Coder  |  Route: Local Ollama  |  Policy: Standard
+Memory: Project only   |  Network: Blocked     |  Tools: 6 permitted
+
+The user should never have to guess which model or authority profile is active.
+
+Approval surface
+
+An approval must resemble a high-quality code review, not a vague modal.
+
+REQUESTED ACTION
+Create commit and push branch fix/auth-timeout
+
+MODEL
+Claude Sonnet via Anthropic
+
+AFFECTED RESOURCES
+12 files changed
+Repository: pcgsoft/project
+Remote: github.com/...
+Branch: fix/auth-timeout
+
+SIDE EFFECTS
+• Writes local files
+• Creates Git commit
+• Sends data to GitHub
+
+VALIDATION
+✓ Unit tests passed
+✓ Typecheck passed
+! Integration tests not run
+
+[View full diff] [Approve once] [Approve this workflow] [Deny]
+
+Separate approvals should exist for:
+
+accepting file edits;
+running commands;
+committing;
+pushing;
+opening a pull request;
+merging;
+deploying.
+
+Approving a patch must not automatically approve deployment.
+
+Audit timeline
+
+The user should see:
+
+13:14:02  User requested authentication timeout fix
+13:14:05  Mnemosyne supplied 8 relevant project memories
+13:14:08  Horae selected local DeepSeek-Coder
+13:14:17  Read-only workspace scan allowed
+13:14:44  Proposed write to 4 files
+13:14:45  Approval required by policy ANK-WRITE-02
+13:15:10  User approved hash 93a4…
+13:15:12  Write completed
+13:15:41  Tests: 42 passed, 1 failed
+13:15:42  Outcome: PARTIAL_SUCCESS
+5. Model API and bring-your-own-model design
+
+Horae should implement a stable internal provider contract.
+
+interface ModelProvider {
+  id: string;
+  displayName: string;
+  locality: "local" | "remote" | "hybrid";
+
+  discoverModels(): Promise<ModelDescriptor[]>;
+  authenticate(request: AuthRequest): Promise<AuthResult>;
+  countTokens(request: TokenCountRequest): Promise<TokenCount>;
+  createCompletion(request: ModelRequest): AsyncIterable<ModelEvent>;
+  cancel(requestId: string): Promise<void>;
+  healthCheck(): Promise<ProviderHealth>;
+}
+Initial provider adapters
+Local
+Ollama-compatible API;
+llama.cpp server;
+LM Studio-compatible endpoint;
+generic OpenAI-compatible local endpoint.
+Hosted
+OpenAI-compatible API;
+Anthropic;
+Google;
+DeepSeek;
+Mistral;
+user-defined OpenAI-compatible endpoint.
+
+The generic OpenAI-compatible adapter is especially important because it allows many current and future providers to work without bespoke core changes.
+
+Provider manifest
+
+Each provider declares:
+
+{
+  "id": "local.ollama",
+  "locality": "local",
+  "supportsTools": true,
+  "supportsImages": false,
+  "supportsStructuredOutput": true,
+  "supportsStreaming": true,
+  "credentialMode": "none",
+  "defaultNetworkPolicy": "loopback-only"
+}
+User experience
+
+The model selector should support:
+
+model for this message;
+default model for this project;
+model by task type;
+fallback chain;
+maximum cost;
+local-only;
+no-training/data-retention requirement;
+tools permitted;
+maximum context;
+minimum capability level.
+
+Example:
+
+Planning            → Claude
+Routine edits       → Local Qwen Coder
+Large refactor      → GPT coding model
+Security review     → Two-model review
+Secrets involved    → Local model only
+Provider isolation
+
+Provider adapters should receive prepared prompts from Horae, not direct unrestricted access to:
+
+the filesystem;
+Mnemosyne’s database;
+Ananke’s policy store;
+OS credentials;
+MCP servers.
+
+They get a bounded request and return events.
+
+6. Authentication and identity
+
+Moirae requires several distinct kinds of authentication. They must not be conflated.
+
+A. Local application identity
+
+For a single-user local install:
+
+no mandatory Moirae cloud account;
+OS login is the primary local identity;
+local workspace profile;
+encrypted local key material;
+optional application unlock using OS biometrics or password.
+
+The user must be able to use local models, local repositories and all three Fates without creating a PCGsoft account.
+
+B. Model-provider credentials
+
+Store keys in:
+
+Windows Credential Manager;
+macOS Keychain;
+Linux Secret Service/libsecret.
+
+Never store provider keys in:
+
+settings.json;
+repository files;
+Mnemosyne memory;
+plaintext SQLite;
+chat transcripts;
+environment dumps;
+audit payloads.
+C. Git provider authentication
+
+Use established provider mechanisms:
+
+Git Credential Manager;
+SSH agent;
+device-code OAuth where appropriate;
+provider CLI integration such as gh auth.
+
+Moirae should request Git operations through a Git adapter; it should not invent its own storage for GitHub passwords.
+
+D. Remote MCP/API authentication
+
+For HTTP MCP servers, follow the MCP authorisation model and use OAuth-based flows where supported. The MCP specification distinguishes HTTP authorisation from stdio: local stdio servers normally obtain credentials from their environment rather than running the HTTP OAuth flow.
+
+Credentials passed to a local MCP process should be:
+
+server-specific;
+minimal scope;
+injected only into that child process;
+removed when the process exits;
+redacted from logs.
+E. Optional Moirae account
+
+A PCGsoft/Moirae account should only be required for optional services such as:
+
+licence and subscription management;
+encrypted settings synchronisation;
+team policy distribution;
+managed model gateway;
+enterprise audit export;
+curated extension registry;
+organisation administration.
+
+It must not become a hidden dependency for the local product.
+
+F. Team and enterprise identity
+
+Later editions can add:
+
+OpenID Connect;
+SAML through an identity broker;
+organisation, team and project roles;
+policy bundles signed by administrators;
+managed provider configuration;
+enterprise MCP authorisation.
+
+MCP’s newer enterprise-managed authorisation work is directly relevant to future team deployments, where individually authorising every server creates operational and security problems.
+
+7. APIs Moirae needs
+Public local API
+
+Expose a versioned local API, but bind it to loopback or a local domain socket by default.
+
+GET    /v1/health
+GET    /v1/runtime/components
+GET    /v1/models
+POST   /v1/sessions
+POST   /v1/sessions/{id}/messages
+POST   /v1/sessions/{id}/cancel
+
+GET    /v1/workflows/{id}
+GET    /v1/workflows/{id}/events
+
+GET    /v1/approvals
+POST   /v1/approvals/{id}/approve
+POST   /v1/approvals/{id}/deny
+
+GET    /v1/memory/search
+POST   /v1/memory/proposals
+POST   /v1/memory/{id}/forget
+
+GET    /v1/audit/events
+POST   /v1/tools/register
+GET    /v1/tools
+Internal event protocol
+
+Use shared runtime-contract packages for events:
+
+type MoiraeEvent =
+  | SessionStarted
+  | ContextPrepared
+  | ModelSelected
+  | ModelOutputReceived
+  | ToolProposed
+  | ApprovalRequested
+  | ApprovalResolved
+  | ToolStarted
+  | ToolCompleted
+  | MemoryProposed
+  | MemoryAccepted
+  | OutcomeProduced
+  | SessionCancelled;
+Extension API
+
+Eventually expose a constrained SDK so third-party extensions can:
+
+propose tools;
+request project context;
+subscribe to outcomes;
+display Moirae approval links;
+register provider adapters;
+contribute policy metadata.
+
+They must not be able to call internal execution functions directly.
+
+interface MoiraeExtensionApi {
+  registerTool(manifest: SignedToolManifest): Disposable;
+  registerModelProvider(provider: ModelProvider): Disposable;
+  proposeOperation(operation: OperationProposal): Promise<Outcome>;
+  queryMemory(query: ScopedMemoryQuery): Promise<MemoryResult[]>;
+  subscribeToOutcomes(handler: OutcomeHandler): Disposable;
+}
+
+Every third-party call remains subject to Ananke.
+
+8. Security architecture
+Process separation
+
+Do not run all Fates inside the Moirae extension host.
+
+Recommended processes:
+
+Electron renderer/UI
+VS Code extension host
+Moirae supervisor
+Horae service
+Ananke service
+Mnemosyne service
+one isolated process per external MCP server where practical
+sandboxed command/tool runners
+
+This prevents a crash or compromise in one component from automatically exposing everything else.
+
+VS Code already separates extensions through its extension-host architecture, but extensions can still be highly privileged; the official documentation warns that extensions generally have the same permissions as the editor. Therefore the Moirae extension marketplace cannot be treated as intrinsically safe.
+
+Electron requirements
+
+Retain and verify:
+
+renderer sandboxing;
+context isolation;
+no Node integration in remote content;
+restrictive Content Security Policy;
+secure-content-only;
+explicit permission handlers;
+no disabled webSecurity;
+no arbitrary navigation from webviews.
+
+These match Electron’s official security recommendations.
+
+Workspace boundaries
+
+Each workspace receives:
+
+unique project identity;
+normalised root paths;
+allowed path list;
+symlink escape protection;
+separate memory namespace;
+separate audit stream;
+separate policy overrides;
+explicit multi-root handling.
+
+Block:
+
+../ traversal;
+junction or symlink escape;
+case-normalisation bypass;
+UNC/network path surprises;
+alternate data streams where applicable;
+writes outside approved roots.
+Command sandbox
+
+Classify commands before execution:
+
+Class	Examples	Default
+Inspection	git status, typecheck, tests	Allow or low-friction
+Workspace mutation	formatter, dependency install	Preview/approval
+Host mutation	system package install	Strong approval
+Networked mutation	publish, push, deploy	Strong approval
+Destructive	delete, database reset	Deny or exceptional approval
+Privilege escalation	sudo/admin	Deny by default
+
+Commands should have:
+
+working-directory restriction;
+environment allowlist;
+timeout;
+output cap;
+network policy;
+filesystem policy;
+child-process limit;
+resource limits;
+cancellation support.
+Network control
+
+Introduce an outbound broker with modes:
+
+blocked;
+loopback only;
+provider endpoints only;
+approved domains;
+unrestricted with warning.
+
+A model or tool must not create arbitrary outbound connections merely because it can run shell commands.
+
+Secret-loss prevention
+
+Before external model or tool transmission, scan for:
+
+API keys;
+private keys;
+.env values;
+database connection strings;
+cloud credentials;
+tokens;
+personal or regulated data patterns.
+
+The result can be:
+
+redact automatically;
+replace with semantic placeholders;
+require approval;
+block;
+force local-model routing.
+Extension security
+
+Because extensions are effectively code execution, Moirae needs a curated posture:
+
+signed first-party extensions;
+publisher allow/deny policy;
+hash verification;
+transparent permissions;
+version pinning;
+vulnerability and reputation data;
+quarantine mode;
+ability to disable extensions for protected workspaces;
+separate “trusted development” and “restricted project” profiles.
+
+VSCodium defaults to Open VSX, and its documentation also permits self-hosted registries. A later Moirae Registry could proxy approved Open VSX packages while publishing first-party extensions, but it should not silently redistribute Microsoft Marketplace packages because of the applicable marketplace restrictions.
+
+Prompt-injection controls
+
+Treat all of these as untrusted data:
+
+source comments;
+README files;
+issue bodies;
+webpages;
+MCP tool descriptions;
+compiler output;
+generated code;
+retrieved memory;
+model responses.
+
+Controls:
+
+separate instructions from retrieved content;
+tag provenance in every context section;
+never parse retrieved text as policy;
+tool descriptions cannot create permissions;
+external content cannot request secrets;
+suspicious instructions surfaced to the user;
+canary tests for cross-server exfiltration;
+taint tracking for sensitive inputs.
+Supply-chain security
+
+Required:
+
+locked dependencies;
+SBOM for each release;
+reproducible-build target;
+signed installers;
+signed update manifests;
+dependency scanning;
+secret scanning;
+licence scanning;
+provenance attestations;
+pinned GitHub Actions;
+release-channel separation;
+rollback mechanism.
+9. Source material to adopt, copy, adapt or replace
+
+“Copy” here must always mean reuse in accordance with its licence and preserve attribution, not copy proprietary components.
+
+Adopt as the base
+VSCodium build system and Code-OSS
+
+Use for:
+
+editor;
+workbench;
+terminal;
+extension host;
+Git UI;
+debugger integration;
+settings;
+commands;
+keybindings;
+accessibility;
+platform packaging foundations.
+
+Avoid maintaining a deep fork unless necessary. The more editor internals you change, the harder upstream security updates become.
+
+Build as first-party components
+moirae-core-extension
+
+Own:
+
+chat surface;
+model selector;
+memory explorer;
+approval UX;
+audit timeline;
+runtime health;
+project onboarding;
+configuration.
+moirae-supervisor
+
+Own:
+
+process startup;
+service discovery;
+health;
+migrations;
+crash recovery;
+local session credentials;
+component version compatibility.
+moirae-provider-sdk
+
+Own:
+
+model adapter interface;
+streaming events;
+token counting;
+capability declarations;
+authentication hooks;
+error normalisation.
+moirae-tool-sdk
+
+Own:
+
+tool manifests;
+side-effect declarations;
+input/output schemas;
+evidence objects;
+compensation metadata;
+execution constraints.
+moirae-runtime-contracts
+
+Extend the existing shared runtime-contract work to include:
+
+workflow;
+model;
+context;
+tool proposal;
+approval;
+memory;
+audit;
+evidence;
+cancellation;
+policy version types.
+
+Do not duplicate these types independently in all four repositories.
+
+Adapt from existing official samples
+
+Use official VS Code extension samples and documentation for:
+
+custom views;
+tree views;
+webviews;
+authentication providers;
+secret storage;
+test integration;
+terminal/task integration;
+chat participants;
+language-model provider integration.
+
+The official Extension API and sample ecosystem are preferable to copying arbitrary third-party chat extensions.
+
+Evaluate for inspiration, not direct dependency
+Continue-style or similar open-source coding assistants
+
+Potentially study:
+
+provider abstraction;
+prompt streaming;
+context providers;
+diff handling;
+codebase indexing;
+model configuration.
+
+But do not allow a third-party assistant architecture to become Moirae’s authority layer. Provider and UX concepts can be adapted; governance must remain yours.
+
+Cline/Roo-like agent interfaces
+
+Study:
+
+step-based tool presentation;
+file-diff approval;
+terminal output;
+session checkpoints;
+browser/tool display.
+
+Replace:
+
+broad implicit authority;
+model-owned approval logic;
+unstructured success states;
+monolithic session storage.
+OpenHands/Aider-style workflows
+
+Study:
+
+Git checkpointing;
+patch application;
+repository maps;
+test-and-fix loops;
+headless operation.
+
+Reuse only behind Ananke and Horae boundaries.
+
+Replace or avoid
+Proprietary Copilot dependencies
+
+Do not make Moirae’s chat, agent loop or model selection dependent on GitHub Copilot.
+
+A compatible third-party extension may still be installable, but Moirae must function without it.
+
+Microsoft Marketplace dependency
+
+Use Open VSX and direct verified VSIX installation, then eventually a curated Moirae registry.
+
+Direct model-to-shell implementations
+
+Replace with:
+
+model → structured proposal → policy → scoped runner → typed outcome
+Raw conversation-log memory
+
+Replace with Mnemosyne’s extracted, scoped, provenance-backed memory.
+
+Shared unrestricted environment variables
+
+Replace with process-specific secret injection.
+
+One giant Electron-side service
+
+Replace with separately versioned and supervised components.
+
+10. Project and repository structure
+
+I would keep the existing repositories independent and add a Moirae umbrella.
+
+Moirae-Code/
+├── apps/
+│   ├── desktop-distribution/
+│   ├── moirae-core-extension/
+│   └── diagnostics-cli/
+│
+├── packages/
+│   ├── supervisor/
+│   ├── provider-sdk/
+│   ├── tool-sdk/
+│   ├── policy-profiles/
+│   ├── ui-components/
+│   ├── local-ipc/
+│   ├── secret-broker/
+│   ├── network-broker/
+│   └── update-service/
+│
+├── integrations/
+│   ├── ananke-client/
+│   ├── mnemosyne-client/
+│   ├── horae-client/
+│   ├── git/
+│   ├── github/
+│   ├── openai-compatible/
+│   ├── anthropic/
+│   ├── google/
+│   ├── ollama/
+│   └── llama-cpp/
+│
+├── packaging/
+│   ├── windows/
+│   ├── linux/
+│   └── macos/
+│
+├── tests/
+│   ├── contract/
+│   ├── integration/
+│   ├── adversarial/
+│   ├── compatibility/
+│   ├── e2e/
+│   └── fixtures/
+│
+├── docs/
+│   ├── architecture/
+│   ├── laws/
+│   ├── threat-model/
+│   ├── provider-guide/
+│   ├── extension-policy/
+│   └── release-process/
+│
+└── upstream/
+    └── vscodium/
+
+External repositories remain:
+
+Project-Ananke
+Project-Mnemosyne
+Project-Horae
+project-runtime-contracts
+
+Moirae should consume versioned releases of these repositories rather than copying their engines into its own source tree.
+
+11. Essential additions before Moirae assembly
+Ananke additions
+hierarchical policy scopes;
+tool-manifest trust system;
+command/network/filesystem policy;
+approval expiry and revocation;
+workflow-level approval limits;
+evidence verification;
+cancellation outcomes;
+compensation/rollback contracts;
+policy simulation;
+signed enterprise policy bundles;
+extension identity in audit events.
+Mnemosyne additions
+project identity and workspace binding;
+secret detection and memory exclusion;
+per-memory sensitivity;
+context export policy;
+model-specific disclosure policy;
+contradiction adjudication UI contract;
+explicit forgetting;
+retention and expiry;
+repository branch/version awareness;
+memory snapshots;
+portable encrypted project compendium;
+resistance to memory poisoning.
+Horae additions
+provider SDK;
+model capability registry;
+generic OpenAI-compatible provider;
+local-model adapters;
+deterministic workflow state machine;
+cancellation and resumability;
+token/context budgeting;
+provider fallback policy;
+no-cloud enforcement;
+MCP lifecycle management;
+parallel-agent limits;
+structured hand-off between models;
+context provenance;
+Ananke decision hooks at every tool boundary.
+Shared runtime contracts
+semantic version compatibility;
+schema migrations;
+feature negotiation;
+correlation and causation IDs;
+trace IDs;
+component identity;
+signed manifests;
+health and diagnostic contracts;
+redaction types;
+evidence types;
+streaming event protocol.
+12. Testing requirements
+
+Moirae should inherit your proposed public validation system and expand it.
+
+Each test result should identify:
+
+Moirae build;
+OS and build;
+architecture;
+VSCodium upstream version;
+installed extensions;
+Ananke/Mnemosyne/Horae versions;
+model and quantisation;
+provider;
+harness;
+workspace type;
+policy profile;
+expected and actual outcome;
+duration;
+logs and evidence;
+reproducibility ID.
+Required test families
+Normal operation
+chat;
+code edits;
+command execution;
+tests;
+Git operations;
+local and hosted models;
+session resume;
+memory retrieval.
+Boundary tests
+path traversal;
+symlink escape;
+cross-workspace memory;
+stale approval;
+mutated diff;
+wrong branch;
+changed remote;
+changed tool version;
+expired credential.
+Malicious tests
+README prompt injection;
+poisoned tool description;
+malicious extension;
+MCP cross-server exfiltration;
+secret harvesting;
+invisible Unicode instructions;
+terminal escape sequences;
+forged tool outcome;
+audit tampering;
+memory poisoning.
+Reliability tests
+model crashes;
+local server disappears;
+power loss;
+network interruption;
+partial file write;
+extension host restart;
+SQLite lock;
+incompatible component version;
+interrupted migration.
+Coexistence tests
+Ananke and Mnemosyne operating simultaneously;
+multiple MCP servers;
+multiple provider adapters;
+remote workspaces;
+containers;
+WSL;
+large monorepositories;
+Windows, Linux and macOS.
+13. Development sequence
+Phase 1 — Headless governed coding loop
+
+Before building the IDE distribution:
+
+Horae accepts a coding request.
+Mnemosyne builds context.
+a selected model proposes actions.
+Ananke evaluates every action.
+a local tool runner executes.
+typed outcomes and audit are produced.
+the loop works through a CLI.
+
+This proves the system, independently of VSCodium.
+
+Phase 2 — Moirae core extension
+
+Build:
+
+runtime connection;
+chat;
+approvals;
+diff review;
+memory;
+audit;
+model selector;
+diagnostics.
+
+Run initially in ordinary VSCodium.
+
+Phase 3 — Branded VSCodium distribution
+
+Bundle:
+
+Moirae extension;
+supervisor;
+the three Fates;
+safe defaults;
+selected open-source extensions;
+installer and updater.
+Phase 4 — Provider and MCP ecosystem
+
+Publish:
+
+provider SDK;
+tool SDK;
+manifests;
+validator;
+signed extension/tool registry;
+compatibility test harness.
+Phase 5 — Team edition
+
+Add:
+
+organisation auth;
+signed policies;
+shared approved memory;
+team audit;
+managed model gateways;
+enterprise MCP identity;
+central extension governance.
+14. The most important architectural decision
+
+Do not fork VSCodium deeply to build the intelligence directly into the editor core.
+
+Use:
+
+a thin branded distribution;
+a substantial first-party extension;
+a separately supervised local control plane;
+independent Ananke, Mnemosyne and Horae services.
+
+This gives you:
+
+faster upstream security updates;
+less merge debt;
+independent testing;
+reuse outside Moirae;
+replaceable UI;
+headless/server operation;
+support for other editors later;
+a much stronger security boundary.
+
+The Fates should control the coding environment, but they should not be trapped inside it.
+
+Final definition
+
+Moirae Code is best described as:
+
+A local-first, model-agnostic coding environment in which Horae coordinates the work, Mnemosyne governs what is remembered and revealed, and Ananke governs what may actually happen.
+
+Its competitive difference is not another chat box or another code-generating model. It is the enforceable chain between:
+
+request
+→ context
+→ model
+→ proposal
+→ authority
+→ execution
+→ evidence
+→ memory
+
+That chain should remain intact regardless of whether the user chooses Claude, OpenAI, DeepSeek, Qwen, a local Llama derivative, or a future model that does not yet exist.

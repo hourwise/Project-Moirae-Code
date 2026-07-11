@@ -1,0 +1,19 @@
+{
+  "name": "@moirae/provider-openai-compatible",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Generic OpenAI-compatible model provider adapter — universal fallback for any compatible endpoint",
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc --build",
+    "clean": "rimraf dist",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@moirae/runtime-contracts": "*",
+    "@moirae/provider-sdk": "*"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "name": "@moirae/update-service",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Auto-update service with signed update manifests, release channels, and rollback capability",
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc --build",
+    "clean": "rimraf dist",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  }
+}

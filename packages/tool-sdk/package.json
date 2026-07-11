@@ -1,0 +1,19 @@
+{
+  "name": "@moirae/tool-sdk",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Tool manifest SDK — typed definitions for governed tool declarations, evidence, and execution constraints",
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc --build",
+    "clean": "rimraf dist",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@moirae/runtime-contracts": "*",
+    "zod": "^3.24.0"
+  }
+}

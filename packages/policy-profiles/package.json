@@ -1,0 +1,19 @@
+{
+  "name": "@moirae/policy-profiles",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Default policy profiles for Moirae Code — Standard, Strict, Enterprise, etc.",
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc --build",
+    "clean": "rimraf dist",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@moirae/runtime-contracts": "*",
+    "@moirae/tool-sdk": "*"
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/runtime-contracts" },
+    { "path": "packages/local-ipc" },
+    { "path": "packages/provider-sdk" },
+    { "path": "packages/tool-sdk" },
+    { "path": "packages/policy-profiles" },
+    { "path": "packages/secret-broker" },
+    { "path": "packages/network-broker" },
+    { "path": "packages/supervisor" },
+    { "path": "packages/ui-components" },
+    { "path": "packages/update-service" },
+    { "path": "integrations/ananke-client" },
+    { "path": "integrations/mnemosyne-client" },
+    { "path": "integrations/horae-client" },
+    { "path": "integrations/openai-compatible" },
+    { "path": "apps/diagnostics-cli" },
+    { "path": "apps/moirae-core-extension" }
+  ]
+}

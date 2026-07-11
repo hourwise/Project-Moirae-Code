@@ -1,0 +1,22 @@
+{
+  "name": "@moirae/ui-components",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared React/webview UI components for approval cards, diff review, memory cards, audit timeline",
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc --build",
+    "clean": "rimraf dist",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@moirae/runtime-contracts": "*",
+    "@moirae/tool-sdk": "*"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0"
+  }
+}

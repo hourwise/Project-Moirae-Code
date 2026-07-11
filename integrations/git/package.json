@@ -1,0 +1,18 @@
+{
+  "name": "@moirae/git-adapter",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Typed Git operations adapter — wraps Git CLI as governed tools behind Ananke",
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc --build",
+    "clean": "rimraf dist",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@moirae/runtime-contracts": "*"
+  }
+}
