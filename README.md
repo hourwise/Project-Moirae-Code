@@ -8,7 +8,7 @@
 
 ## ⚡ Current Status — July 2026
 
-**Moirae Code monorepo:** Scaffold complete. 16 packages build cleanly. Blocked waiting on upstream dependencies.
+**Moirae Code monorepo:** 12 packages + 10 integrations building cleanly. 162 tests passing across 9 suites. Blocked waiting on upstream dependencies.
 
 **Blockers (external repos):**
 
@@ -23,11 +23,13 @@ Capability-by-capability upstream status lives in [docs/upstream-dependency-matr
 
 **What we can do now (unblocked):**
 
-- ✅ Provider adapters: Anthropic (Claude), Google (Gemini), DeepSeek, llama.cpp — all built
+- ✅ Provider adapters: Anthropic (Claude), Google (Gemini), DeepSeek, llama.cpp, Mistral — all built
 - ✅ Tool manifest validator with risk scoring, publisher trust, and integrity checks — built
+- ✅ Governed skill registry: import, inspect, Reticle scan, trust classify, install, pin, update, rollback — built
+- ✅ Sandbox execution adapter: 5 modes, risk-based mode selection, config validation, approval preview, path/network checks — built
 - ✅ Supervisor health check polling, crash recovery with escalation tiers — built
 - ✅ Moirae-specific types: supervisor configs, packaging manifests, update manifests, extension policies — built
-- ✅ 69 contract + adversarial tests passing across 4 suites
+- ✅ 162 contract + adversarial tests passing across 9 suites
 - Continue developing `@moirae/runtime-contracts` types that don't duplicate external contracts
 - Design the IDE surface components: task panel, memory panel, approvals panel, runtime panel, content preflight inspector, skill registry, execution log, evidence viewer
 
@@ -88,16 +90,18 @@ User request → Horae creates proposed operation → Ananke evaluates authority
 
 ## Monorepo Structure
 
-```
-Moirae Code/
-├── packages/                         # 9 first-party packages
-│   ├── runtime-contracts/            ✅ Shared types, schemas, constants
+```12 first-party packages
+│   ├── runtime-contracts/            ✅ Shared types, schemas, Moirae-specific types
 │   ├── local-ipc/                    ✅ JSON-RPC transport types
 │   ├── provider-sdk/                 ✅ ModelProvider interface + events
-│   ├── tool-sdk/                     ✅ ToolManifest, RiskClass, SideEffectClass
+│   ├── tool-sdk/                     ✅ ToolManifest, RiskClass, ManifestValidator
 │   ├── policy-profiles/              ✅ Standard + Strict profiles
 │   ├── secret-broker/                ✅ OS keychain abstraction
-│   ├── network-broker/               ✅ Outbound connection policy
+│   ├── network-broker/               ✅ 5-level outbound connection policy
+│   ├── supervisor/                   ✅ Health checks + crash recovery
+│   ├── skill-registry/               ✅ Governed skill import, inspect, trust, install, update, rollback
+│   ├── sandbox-adapter/              ✅ 5 execution modes, risk-based selection, config validation, evidence capture
+│   ├── ui-components/                🔶 Component interfaces designed (Phase 1olicy
 │   ├── supervisor/                   ✅ Process lifecycle scaffold
 │   ├── ui-components/                🔶 Placeholder (Phase 2)
 │   └── update-service/               🔶 Placeholder (Phase 3)
