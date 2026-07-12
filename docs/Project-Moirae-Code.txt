@@ -1,0 +1,81 @@
+You are performing a documentation-only pass on this repository.
+
+NON-NEGOTIABLE RULES
+
+1. Do not modify runtime code, tests, package manifests, lockfiles, build configuration, CI configuration, dependencies, generated files, or deployment configuration unless this prompt explicitly requests a documentation-only link or metadata correction.
+2. Do not invent capabilities, guarantees, APIs, states, ownership boundaries, implementation status, security properties, protocol behaviour, or future commitments.
+3. Treat accepted ADRs, exported public types, source code, tests, and the current README as evidence. In that order, prefer implemented and tested behaviour over prose.
+4. If sources disagree, do not silently resolve the conflict. Add a clearly labelled "Documentation conflict" or "Open question" section and report it in the final summary.
+5. Clearly distinguish: implemented and tested; implemented but not integration-tested; scaffolded; designed; proposed; explicitly out of scope.
+6. Never describe proposed or scaffolded behaviour as currently working.
+7. Do not add marketing language or unsupported claims such as "secure", "production-ready", "guaranteed", "zero trust", or "enterprise-grade".
+8. Keep terminology consistent with project-runtime-contracts and accepted ecosystem terminology.
+9. Use relative repository links.
+10. Mermaid diagrams may be added only when every component, relationship, and transition is supported by repository evidence or an explicit requirement in this prompt.
+11. Keep changes restricted to Markdown or plain-text documentation files and README documentation links.
+12. Do not create empty placeholder files. Every created document must contain useful, repository-specific content.
+13. Do not duplicate the README. New documentation should deepen, formalise, or operationalise material that is too detailed for the README.
+14. Do not commit or push unless explicitly instructed. Prepare the changes and report the diff.
+
+EVIDENCE AND WORKFLOW
+
+Before editing:
+- Inspect the repository tree.
+- Read the README, existing docs, ADRs, public types, package boundaries, and relevant tests.
+- List the evidence sources you will use.
+- Identify contradictions, outdated statements, naming inconsistencies, and unresolved decisions.
+- Confirm that the requested documents are not already present under another name.
+
+During editing:
+- Preserve existing accepted decisions.
+- Prefer short normative statements for rules and detailed explanatory sections for rationale.
+- Add links from the README or docs index only where useful.
+- Use exact paths, type names, outcome names, and identifiers found in the repository.
+- When referring to another repository, state clearly whether the dependency is current, optional, planned, or blocked.
+
+After editing:
+- Show every created and modified file.
+- Summarise the purpose of each file.
+- List every unresolved question or documentation conflict.
+- List any wording that required inference rather than direct extraction.
+- Run available Markdown formatting, lint, or link checks if already configured.
+- Show `git diff --stat`.
+- Show the documentation-only diff or a concise section-by-section summary.
+- Confirm that no runtime code or configuration changed.
+
+
+PROJECT: Project Moirae Code
+REPOSITORY: https://github.com/hourwise/Project-Moirae-Code
+
+PRIMARY GOAL
+Document product architecture, trust boundaries, extension security, provider contract, upstream dependencies, and governance limitations without implying that the current scaffold already provides complete end-to-end security.
+
+AUTHORITY BOUNDARY
+Moirae Code owns the coding environment, host process composition, UI, product integration/configuration, host-level lifecycle, and user-visible governance status.
+It does not automatically own Ananke approval semantics, Mnemosyne reliability semantics, Horae composition semantics, provider credentials unless brokered, extension behaviour outside enforced controls, or terminal/filesystem actions that bypass the governed path.
+Be explicit about intended architecture versus scaffolded, implemented, enforced, and bypassable behaviour.
+
+REQUESTED DOCUMENTS
+1. `docs/product-architecture.md`
+   Describe VSCodium-derived host, Electron/main, renderer/UI, extension host, Horae, Ananke, Mnemosyne, model broker, connector/credential broker, local state, updates, IPC/API boundaries, logging, and audit presentation. For each: responsibility, process boundary, data, authority, failure effect, implementation status.
+2. `docs/trust-boundaries.md`
+   Analyse terminal, shell tasks, debug adapters, direct filesystem APIs, Git integrations, extensions, embedded MCP clients, direct provider tools, external CLIs, browser/network access, and local credentials. State what Moirae/Ananke control, what remains outside governance, what must be disabled/brokered/sandboxed/marked, and which claims cannot yet be made.
+3. `docs/extension-security-model.md`
+   Document current/proposed extension handling: unrestricted, allowlisted, trusted publisher, integrity-pinned, capability-scoped, isolated, denied direct tool access, and network/credential/filesystem/child-process permissions. Explain bypass risks.
+4. `docs/model-provider-contract.md`
+   Define provider-neutral authentication ownership, discovery, streaming, structured output, tool proposals/interception, cancellation, retries, usage, context limits, multimodal support, local models, errors, rate limits, privacy, and redaction. Do not claim unsupported parity.
+5. `docs/upstream-dependency-matrix.md`
+   Structure dependencies on Horae, Ananke, Mnemosyne, and runtime-contracts. For each capability include dependency, required capability, minimum protocol if decided, evidence required, status, blocker, last verified date, and integration-test reference. Prefer maintainable, machine-readable structure without adding tooling.
+6. `docs/governed-path.md`
+   Describe user request -> model -> context retrieval -> tool proposal -> Horae -> Ananke -> execution -> outcome -> memory update -> UI. Show bypasses and mark prevented versus planned controls.
+7. `docs/decisions/README.md`
+   Create/update ADR index.
+
+SPECIAL REVIEW QUESTIONS
+Do not silently decide: whether terminal can be governed; default extension policy; whether Git routes through Ananke; provider-key ownership; local-model guarantees; child-process rights; marketplace restrictions; intentional ungoverned mode; degraded-governance UX; version pinning versus negotiation; update impact on trust.
+
+README CHANGES
+Add a concise architecture/documentation section. Replace duplicated upstream status prose with the dependency matrix where appropriate. Do not claim the headless loop is complete unless tests prove it.
+
+DELIVERABLE STANDARD
+A reviewer should be able to answer: Which process holds which authority? What can bypass governance? Which integrations are real? What remains scaffolded? How are providers abstracted? How are extensions constrained? What upstream capability blocks each feature?

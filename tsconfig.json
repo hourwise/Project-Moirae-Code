@@ -3,6 +3,7 @@
   "references": [
     { "path": "packages/runtime-contracts" },
     { "path": "packages/skill-registry" },
+    { "path": "packages/sandbox-adapter" },
     { "path": "packages/local-ipc" },
     { "path": "packages/provider-sdk" },
     { "path": "packages/tool-sdk" },
