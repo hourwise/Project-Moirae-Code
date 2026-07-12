@@ -12,12 +12,14 @@
 
 **Blockers (external repos):**
 
-| Blocker | Repo | Status | Impact |
-|---------|------|--------|--------|
-| Ananke needs production hardening | [Project-Ananke](https://github.com/hourwise/Project-Ananke) | Phase 1 prototype (60 tests) | Phase 1 headless loop cannot integrate without production auth, real MCP validation, and Agent SDK |
-| Mnemosyne MCP + Ananke adapter incomplete | [Project-Mnemosyne](https://github.com/hourwise/Project-Mnemosyne) | Milestones 8-9 in progress | Horae cannot retrieve governed context packs or route safety signals |
-| Horae not implemented | [Project-Horae](https://github.com/hourwise/Project-Horae) | Design docs only, no code | Cannot compose runtimes, plan capabilities, or orchestrate sessions |
-| Runtime Contracts missing workflow/memory/approval types | [project-runtime-contracts](https://github.com/hourwise/project-runtime-contracts) | v1.1.0 base contracts only | Missing types for tool proposals, model descriptors, context packs, evidence, cancellation, streaming events |
+| Blocker                                                  | Repo                                                                               | Status                       | Impact                                                                                                       |
+| -------------------------------------------------------- | ---------------------------------------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Ananke needs production hardening                        | [Project-Ananke](https://github.com/hourwise/Project-Ananke)                       | Phase 1 prototype (60 tests) | Phase 1 headless loop cannot integrate without production auth, real MCP validation, and Agent SDK           |
+| Mnemosyne MCP + Ananke adapter incomplete                | [Project-Mnemosyne](https://github.com/hourwise/Project-Mnemosyne)                 | Milestones 8-9 in progress   | Horae cannot retrieve governed context packs or route safety signals                                         |
+| Horae not implemented                                    | [Project-Horae](https://github.com/hourwise/Project-Horae)                         | Design docs only, no code    | Cannot compose runtimes, plan capabilities, or orchestrate sessions                                          |
+| Runtime Contracts missing workflow/memory/approval types | [project-runtime-contracts](https://github.com/hourwise/project-runtime-contracts) | v1.1.0 base contracts only   | Missing types for tool proposals, model descriptors, context packs, evidence, cancellation, streaming events |
+
+Capability-by-capability upstream status lives in [docs/upstream-dependency-matrix.md](docs/upstream-dependency-matrix.md).
 
 **What we can do now (unblocked):**
 
@@ -27,7 +29,7 @@
 - ✅ Moirae-specific types: supervisor configs, packaging manifests, update manifests, extension policies — built
 - ✅ 69 contract + adversarial tests passing across 4 suites
 - Continue developing `@moirae/runtime-contracts` types that don't duplicate external contracts
-- Design the IDE surface components: task panel, memory panel, approvals panel, runtime panel, skill registry, execution log, evidence viewer
+- Design the IDE surface components: task panel, memory panel, approvals panel, runtime panel, content preflight inspector, skill registry, execution log, evidence viewer
 
 **Next task once unblocked:** Implement Horae runtime-core (registry → capability planner → session orchestrator → governed vertical slice)
 
@@ -75,12 +77,12 @@ User request → Horae creates proposed operation → Ananke evaluates authority
 
 ## The Fates (Core Services)
 
-| Fate | Role | Repository | Status |
-|------|------|------------|--------|
-| **Ananke** | Authority & Outcome Control | [Project-Ananke](https://github.com/hourwise/Project-Ananke) | Phase 1 prototype — 60 tests passing, 7 safety scenarios verified |
-| **Mnemosyne** | Controlled Project Memory | [Project-Mnemosyne](https://github.com/hourwise/Project-Mnemosyne) | MVP — 8 of 9 milestones complete, MCP + Ananke adapter in progress |
-| **Horae** | Orchestration & Model Mediation | [Project-Horae](https://github.com/hourwise/Project-Horae) | Design docs only — awaiting implementation |
-| **Runtime Contracts** | Shared protocol layer | [project-runtime-contracts](https://github.com/hourwise/project-runtime-contracts) | v1.1.0 — base identity, capability, health, session, composition contracts |
+| Fate                  | Role                            | Repository                                                                         | Status                                                                     |
+| --------------------- | ------------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| **Ananke**            | Authority & Outcome Control     | [Project-Ananke](https://github.com/hourwise/Project-Ananke)                       | Phase 1 prototype — 60 tests passing, 7 safety scenarios verified          |
+| **Mnemosyne**         | Controlled Project Memory       | [Project-Mnemosyne](https://github.com/hourwise/Project-Mnemosyne)                 | MVP — 8 of 9 milestones complete, MCP + Ananke adapter in progress         |
+| **Horae**             | Orchestration & Model Mediation | [Project-Horae](https://github.com/hourwise/Project-Horae)                         | Design docs only — awaiting implementation                                 |
+| **Runtime Contracts** | Shared protocol layer           | [project-runtime-contracts](https://github.com/hourwise/project-runtime-contracts) | v1.1.0 — base identity, capability, health, session, composition contracts |
 
 ---
 
@@ -147,6 +149,7 @@ Skills are imported, inspected, and governed — not blindly trusted. Each skill
 ### Capability-Based Workers
 
 Workers are instantiated per task with the minimum required capabilities. The pattern:
+
 1. Analyse task requirements
 2. Resolve required capabilities
 3. Instantiate minimum workers with minimum context and authority
@@ -163,6 +166,12 @@ The chat session is ephemeral. The project state must survive: model replacement
 ### Sandbox Execution
 
 Execution modes are selected by risk: host, restricted process, container, microVM, or remote sandbox. Before approval, the user sees: repository scope, network scope, secrets involved, resource limits, expected side effects, cleanup plan, and evidence capture strategy.
+
+### Content Preflight UX
+
+Before file content is exposed to models or memory, Moirae Code presents a first-class content preflight experience. The UI surfaces source identity and trust class, detected type and size, structural facts, scanner status, high-level risk flags, exposure level, truncation or redaction state, approval state, stale receipts, and Mnemosyne eligibility without exposing detector internals.
+
+Disclosure is progressive: structure only, sanitized details, selected content, then full content. If a source changes, prior approvals become visibly stale, access stops, and the user is offered re-scan and re-evaluation rather than silent trust reuse.
 
 ### Task Lifecycle
 
@@ -195,6 +204,14 @@ Phase 4: Advanced Isolation + Team Mode + Signed Skills
 ---
 
 ## Documentation
+
+- [Product Architecture](docs/product-architecture.md) â€” Responsibilities, process boundaries, authority, and failure effects by component
+- [Trust Boundaries](docs/trust-boundaries.md) â€” What Moirae currently governs, what bypasses it, and which controls are still planned
+- [Extension Security Model](docs/extension-security-model.md) â€” Current versus proposed extension posture, trust states, and bypass risks
+- [Model Provider Contract](docs/model-provider-contract.md) â€” Provider-neutral contract surface and limits of adapter parity
+- [Upstream Dependency Matrix](docs/upstream-dependency-matrix.md) â€” Capability-by-capability dependency and blocker tracking for Horae, Ananke, Mnemosyne, and runtime contracts
+- [Governed Path](docs/governed-path.md) â€” Intended request-to-outcome path and current bypass surfaces
+- [ADR Index](docs/decisions/README.md) â€” ADR inventory and current statuses
 
 - [Product Blueprint](docs/Moirae%20Code%20—%20proposed%20product%20blue.txt) — Full architectural proposal
 - [Roadmap & Build Plan](docs/ROADMAP.md) — Detailed build plan with blockers and dependencies

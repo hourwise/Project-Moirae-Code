@@ -3,6 +3,7 @@
 ## Purpose
 
 Moirae Code should be a governed, model-independent coding environment built around:
+
 - Horae for orchestration
 - Ananke for policy and approval
 - Mnemosyne for durable memory
@@ -13,6 +14,7 @@ It should not be merely another coding agent. It should be a stable coding surfa
 ## Governed Skill Registry
 
 Capabilities:
+
 - import standard skill folders
 - inspect manifest
 - show licence and provenance
@@ -28,7 +30,7 @@ Capabilities:
 Skill kinds:
 
 ```ts
-type SkillKind = "guidance" | "workflow" | "executable";
+type SkillKind = 'guidance' | 'workflow' | 'executable';
 ```
 
 ## Capability-based workers
@@ -47,6 +49,7 @@ type SkillKind = "guidance" | "workflow" | "executable";
 ## Project state outside chat
 
 The chat is temporary. The project state must survive:
+
 - model replacement
 - IDE restart
 - computer restart
@@ -56,6 +59,7 @@ The chat is temporary. The project state must survive:
 - human handoff
 
 UI should expose:
+
 - active task
 - project truth
 - unresolved conflicts
@@ -70,6 +74,7 @@ UI should expose:
 ## Provider abstraction
 
 Support:
+
 - local models
 - direct APIs
 - OpenAI-compatible endpoints
@@ -78,6 +83,7 @@ Support:
 - explicit fallback policy
 
 Controls:
+
 - provider/model selection
 - cost limits
 - data residency
@@ -94,6 +100,7 @@ Do not build around free-tier aggregators.
 ## Sandbox execution
 
 Execution modes:
+
 - host
 - restricted process
 - container
@@ -102,9 +109,16 @@ Execution modes:
 
 Before approval, show repository scope, network scope, secrets, limits, expected side effects, cleanup plan, and evidence capture.
 
+## Content preflight UX
+
+Before file content is exposed to models or memory, present a first-class inspection step that shows source identity and trust class, detected type and size, structural facts, scanner status, high-level risk flags, exposure level, truncation or redaction state, approval state, stale receipts, and Mnemosyne eligibility.
+
+Progressive disclosure should move through structure only, sanitized details, selected content, and full content. Detector rules, regexes, private scanner configuration, hidden policy exceptions, and redacted sensitive content must stay hidden.
+
 ## Task lifecycle
 
 Every task should support:
+
 - create
 - plan
 - approve
@@ -122,6 +136,7 @@ Cancellation should stop new actions, signal workers, preserve partial results, 
 ## Git integration
 
 Track:
+
 - repository
 - branch
 - base commit
@@ -141,6 +156,7 @@ Push, force-push, branch deletion, and release creation should be governed by An
 - memory panel
 - approvals panel
 - runtime panel
+- content preflight inspector
 - skill registry
 - execution log
 - evidence viewer
@@ -166,6 +182,7 @@ Governance must not be hidden behind a normal chat panel.
 ## Build order
 
 ### Phase 1
+
 - VSCodium shell
 - runtime registration
 - provider adapters
@@ -173,8 +190,10 @@ Governance must not be hidden behind a normal chat panel.
 - task panel
 - Mnemosyne view
 - Ananke approval panel
+- content preflight inspector
 
 ### Phase 2
+
 - governed skill registry
 - task lifecycle
 - cancellation
@@ -183,6 +202,7 @@ Governance must not be hidden behind a normal chat panel.
 - sandbox adapter
 
 ### Phase 3
+
 - capability resolver
 - framework adapters
 - local/remote routing
@@ -190,6 +210,7 @@ Governance must not be hidden behind a normal chat panel.
 - handoff/export
 
 ### Phase 4
+
 - advanced isolation
 - team mode
 - signed skills
