@@ -1,0 +1,19 @@
+{
+  "name": "@moirae/fates-inspection",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Inspection-only aggregation of canonical Fates runtime reports",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc --build",
+    "clean": "rimraf dist",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@moirae/adrasteia-adapter": "*",
+    "project-runtime-contracts": "https://github.com/hourwise/Project-Adrasteia/releases/download/adrasteia-adoption-v0.4.0-protocol-1.4.0/project-runtime-contracts-0.4.0.tgz"
+  }
+}

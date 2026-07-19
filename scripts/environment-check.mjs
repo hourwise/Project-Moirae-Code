@@ -29,7 +29,9 @@ addCheck('ENV-001', 'Node.js version', nodeMajor >= 22 ? 'passed' : 'failed', no
 
 // npm
 try {
-  const npmVersion = execFileSync('npm', ['--version'], { encoding: 'utf8' }).trim();
+  const npmCommand = process.platform === 'win32' ? process.env.ComSpec ?? 'cmd.exe' : 'npm';
+  const npmArgs = process.platform === 'win32' ? ['/d', '/s', '/c', 'npm --version'] : ['--version'];
+  const npmVersion = execFileSync(npmCommand, npmArgs, { encoding: 'utf8' }).trim();
   addCheck('ENV-002', 'npm available', 'passed', npmVersion);
 } catch {
   addCheck('ENV-002', 'npm available', 'failed', '', 'Install npm');

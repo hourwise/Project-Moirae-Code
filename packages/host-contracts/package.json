@@ -1,0 +1,19 @@
+{
+  "name": "@moirae/host-contracts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Moirae-owned host, process, extension, provider, and proposal contracts",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc --build",
+    "clean": "rimraf dist",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "project-runtime-contracts": "https://github.com/hourwise/Project-Adrasteia/releases/download/adrasteia-adoption-v0.4.0-protocol-1.4.0/project-runtime-contracts-0.4.0.tgz",
+    "zod": "^3.24.0"
+  }
+}

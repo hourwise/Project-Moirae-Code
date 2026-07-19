@@ -1,5 +1,11 @@
 # Project Moirae Code
 
+## Stage-A adoption status (2026-07-18)
+
+Moirae Code has adopted the immutable [Project Adrasteia](https://github.com/hourwise/Project-Adrasteia) `project-runtime-contracts@0.4.0` baseline and Fates Runtime Protocol `1.4.0` (`1.0.0–1.4.0`). This repository is an **inspection-only Fates host**: it exposes canonical host inspection, captures model tool calls as proposals, and compares pinned peer inspection records. It does not execute through Ananke, retrieve Mnemosyne context, start Horae sessions, execute a sandbox, or perform content preflight.
+
+The detailed evidence and peer pins are in [docs/integration/adrasteia-baseline.json](docs/integration/adrasteia-baseline.json); current boundaries are in [ADR-0001](docs/decisions/ADR-0001-project-adrasteia-stage-a-host-boundary.md). The older roadmap prose below is design history where it conflicts with this Stage-A status.
+
 > A local-first, model-agnostic coding environment in which Horae coordinates the work, Mnemosyne governs what is remembered and revealed, and Ananke governs what may actually happen.
 
 **Product promise:** Use almost any coding model, local or hosted, without surrendering control of what it remembers, what it can access, or what it is allowed to do.

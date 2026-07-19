@@ -11,6 +11,7 @@ import type { ModelDescriptor, ProviderManifest } from '@moirae/provider-sdk';
 
 export interface LlamaCppConfig {
   baseUrl?: string;
+  fetchImpl?: typeof fetch;
 }
 
 export class LlamaCppProvider extends OpenAICompatibleProvider {
@@ -23,7 +24,11 @@ export class LlamaCppProvider extends OpenAICompatibleProvider {
   };
 
   constructor(config: LlamaCppConfig = {}) {
-    super({ baseUrl: config.baseUrl ?? 'http://127.0.0.1:8080' });
+    super({
+      baseUrl: config.baseUrl ?? 'http://127.0.0.1:8080',
+      localLoopback: true,
+      fetchImpl: config.fetchImpl,
+    });
   }
 
   override async discoverModels(): Promise<ModelDescriptor[]> {

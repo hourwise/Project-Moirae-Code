@@ -10,7 +10,13 @@ import {
   OpenAICompatibleProvider,
   type OpenAICompatibleConfig,
 } from '@moirae/provider-openai-compatible';
-import type { ModelDescriptor, ProviderManifest, ProviderHealth } from '@moirae/provider-sdk';
+import type {
+  ModelDescriptor,
+  ProviderManifest,
+  ProviderHealth,
+  ProviderCredentialAccessor,
+  ProviderCredentialReference,
+} from '@moirae/provider-sdk';
 
 const DEEPSEEK_KNOWN_MODELS: ModelDescriptor[] = [
   {
@@ -52,8 +58,10 @@ const DEEPSEEK_KNOWN_MODELS: ModelDescriptor[] = [
 ];
 
 export interface DeepSeekConfig {
-  apiKey: string;
   baseUrl?: string;
+  credential?: ProviderCredentialReference;
+  credentialAccessor?: ProviderCredentialAccessor;
+  fetchImpl?: typeof fetch;
 }
 
 export class DeepSeekProvider extends OpenAICompatibleProvider {
@@ -68,7 +76,9 @@ export class DeepSeekProvider extends OpenAICompatibleProvider {
   constructor(config: DeepSeekConfig) {
     super({
       baseUrl: config.baseUrl ?? 'https://api.deepseek.com',
-      apiKey: config.apiKey,
+      credential: config.credential,
+      credentialAccessor: config.credentialAccessor,
+      fetchImpl: config.fetchImpl,
     });
   }
 
@@ -79,10 +89,14 @@ export class DeepSeekProvider extends OpenAICompatibleProvider {
   override async healthCheck(): Promise<ProviderHealth> {
     try {
       const start = Date.now();
-      const res = await fetch('https://api.deepseek.com/v1/models', {
-        headers: { Authorization: `Bearer (await this.getApiKey?.())` },
+      const res = await this.request(`${this.config.baseUrl}/models`, {
+        headers: await this.authorizationHeaders(),
       });
-      return { available: res.ok || res.status === 401, latencyMs: Date.now() - start, activeRequests: 0 };
+      return {
+        available: res.ok || res.status === 401,
+        latencyMs: Date.now() - start,
+        activeRequests: 0,
+      };
     } catch {
       return { available: false, latencyMs: 0, activeRequests: 0, message: 'Unreachable' };
     }

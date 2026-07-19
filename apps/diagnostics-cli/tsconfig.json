@@ -3,7 +3,7 @@
   "compilerOptions": { "outDir": "dist", "rootDir": "src", "tsBuildInfoFile": "dist/.tsbuildinfo" },
   "include": ["src"],
   "references": [
-    { "path": "../../packages/runtime-contracts" },
-    { "path": "../../packages/supervisor" }
+    { "path": "../../packages/adrasteia-adapter" },
+    { "path": "../../packages/fates-inspection" }
   ]
 }

@@ -53,7 +53,11 @@ describe('SandboxAdapter — Config Building', () => {
   });
 
   it('builds a valid default config for DEPLOYMENT', () => {
-    const config = adapter.buildDefaultConfig(RiskClass.DEPLOYMENT, '/workspace', 'kubectl', ['apply', '-f', 'deploy.yaml']);
+    const config = adapter.buildDefaultConfig(RiskClass.DEPLOYMENT, '/workspace', 'kubectl', [
+      'apply',
+      '-f',
+      'deploy.yaml',
+    ]);
     expect(config.mode).toBe(ExecutionMode.RemoteSandbox);
     expect(config.maxDurationMs).toBe(300_000);
     expect(config.networkPolicy).toBe('blocked');
@@ -61,7 +65,9 @@ describe('SandboxAdapter — Config Building', () => {
   });
 
   it('config passes schema validation', () => {
-    const config = adapter.buildDefaultConfig(RiskClass.INTERNAL_WRITE, '/workspace', 'npm', ['test']);
+    const config = adapter.buildDefaultConfig(RiskClass.INTERNAL_WRITE, '/workspace', 'npm', [
+      'test',
+    ]);
     const parsed = SandboxConfigSchema.safeParse(config);
     expect(parsed.success).toBe(true);
   });
@@ -71,7 +77,9 @@ describe('SandboxAdapter — Validation', () => {
   const adapter = new SandboxAdapter();
 
   it('validates a correct config', () => {
-    const config = adapter.buildDefaultConfig(RiskClass.INTERNAL_WRITE, '/workspace', 'npm', ['test']);
+    const config = adapter.buildDefaultConfig(RiskClass.INTERNAL_WRITE, '/workspace', 'npm', [
+      'test',
+    ]);
     const result = adapter.validate(config, RiskClass.INTERNAL_WRITE);
     expect(result.valid).toBe(true);
     expect(result.errors).toHaveLength(0);
@@ -87,15 +95,23 @@ describe('SandboxAdapter — Validation', () => {
   });
 
   it('rejects network enabled for PAYMENT', () => {
-    const config = adapter.buildDefaultConfig(RiskClass.PAYMENT, '/workspace', 'charge', ['--amount=10']);
-    const badConfig = { ...config, networkPolicy: 'approved_domains' as const, allowedDomains: ['api.example.com'] };
+    const config = adapter.buildDefaultConfig(RiskClass.PAYMENT, '/workspace', 'charge', [
+      '--amount=10',
+    ]);
+    const badConfig = {
+      ...config,
+      networkPolicy: 'approved_domains' as const,
+      allowedDomains: ['api.example.com'],
+    };
     const result = adapter.validate(badConfig, RiskClass.PAYMENT);
     expect(result.valid).toBe(false);
     expect(result.errors.some((e) => e.includes('Network must be blocked'))).toBe(true);
   });
 
   it('rejects secrets in Host mode', () => {
-    const config = adapter.buildDefaultConfig(RiskClass.READ_ONLY, '/workspace', 'cat', ['file.txt']);
+    const config = adapter.buildDefaultConfig(RiskClass.READ_ONLY, '/workspace', 'cat', [
+      'file.txt',
+    ]);
     const badConfig = { ...config, mode: ExecutionMode.Host, secretsPolicy: 'all' as const };
     const result = adapter.validate(badConfig, RiskClass.READ_ONLY);
     expect(result.valid).toBe(false);
@@ -111,7 +127,10 @@ describe('SandboxAdapter — Validation', () => {
   });
 
   it('rejects paths outside workspace that are not temp', () => {
-    const config = adapter.buildDefaultConfig(RiskClass.INTERNAL_WRITE, '/workspace', 'cp', ['file', '/etc/config']);
+    const config = adapter.buildDefaultConfig(RiskClass.INTERNAL_WRITE, '/workspace', 'cp', [
+      'file',
+      '/etc/config',
+    ]);
     const badConfig = { ...config, allowedPaths: ['/etc'] };
     const result = adapter.validate(badConfig, RiskClass.INTERNAL_WRITE);
     expect(result.valid).toBe(false);
@@ -119,7 +138,10 @@ describe('SandboxAdapter — Validation', () => {
   });
 
   it('accepts temp paths outside workspace', () => {
-    const config = adapter.buildDefaultConfig(RiskClass.INTERNAL_WRITE, '/workspace', 'cp', ['file', '/tmp/out']);
+    const config = adapter.buildDefaultConfig(RiskClass.INTERNAL_WRITE, '/workspace', 'cp', [
+      'file',
+      '/tmp/out',
+    ]);
     const goodConfig = { ...config, allowedPaths: ['/tmp/output'] };
     const result = adapter.validate(goodConfig, RiskClass.INTERNAL_WRITE);
     expect(result.valid).toBe(true);
@@ -130,10 +152,13 @@ describe('SandboxAdapter — Approval Preview', () => {
   const adapter = new SandboxAdapter();
 
   it('builds a preview for user approval', () => {
-    const config = adapter.buildDefaultConfig(RiskClass.INTERNAL_WRITE, '/workspace', 'npm', ['run', 'build']);
+    const config = adapter.buildDefaultConfig(RiskClass.INTERNAL_WRITE, '/workspace', 'npm', [
+      'run',
+      'build',
+    ]);
     const preview = adapter.buildApprovalPreview(config, 'npm', ['run', 'build']);
 
-    expect(preview.description).toContain('npm run build');
+    expect(preview.description).toContain('[command:npm]');
     expect(preview.networkScope).toContain('none (blocked)');
     expect(preview.secrets).toHaveLength(0);
     expect(preview.limits.maxDurationMs).toBe(300_000);
@@ -145,13 +170,17 @@ describe('SandboxAdapter — Approval Preview', () => {
   });
 
   it('preview includes network scope when network is enabled', () => {
-    const config = adapter.buildDefaultConfig(RiskClass.EXTERNAL_SEND, '/workspace', 'curl', ['https://api.example.com']);
+    const config = adapter.buildDefaultConfig(RiskClass.EXTERNAL_SEND, '/workspace', 'curl', [
+      'https://api.example.com',
+    ]);
     const networkConfig = {
       ...config,
       networkPolicy: 'approved_domains' as const,
       allowedDomains: ['api.example.com'],
     };
-    const preview = adapter.buildApprovalPreview(networkConfig, 'curl', ['https://api.example.com']);
+    const preview = adapter.buildApprovalPreview(networkConfig, 'curl', [
+      'https://api.example.com',
+    ]);
     expect(preview.networkScope).toContain('api.example.com');
   });
 });
@@ -186,19 +215,25 @@ describe('SandboxAdapter — Network & Path Checks', () => {
   });
 
   it('allows paths within workspace', () => {
-    const config = adapter.buildDefaultConfig(RiskClass.READ_ONLY, '/workspace', 'cat', ['src/index.ts']);
+    const config = adapter.buildDefaultConfig(RiskClass.READ_ONLY, '/workspace', 'cat', [
+      'src/index.ts',
+    ]);
     expect(adapter.isPathAllowed(config, '/workspace/src/index.ts')).toBe(true);
     expect(adapter.isPathAllowed(config, '/workspace/docs/readme.md')).toBe(true);
   });
 
   it('allows temp paths', () => {
-    const config = adapter.buildDefaultConfig(RiskClass.READ_ONLY, '/workspace', 'cat', ['/tmp/log.txt']);
+    const config = adapter.buildDefaultConfig(RiskClass.READ_ONLY, '/workspace', 'cat', [
+      '/tmp/log.txt',
+    ]);
     expect(adapter.isPathAllowed(config, '/tmp/log.txt')).toBe(true);
     expect(adapter.isPathAllowed(config, '/temp/cache')).toBe(true);
   });
 
   it('rejects paths outside workspace', () => {
-    const config = adapter.buildDefaultConfig(RiskClass.READ_ONLY, '/workspace', 'cat', ['/etc/passwd']);
+    const config = adapter.buildDefaultConfig(RiskClass.READ_ONLY, '/workspace', 'cat', [
+      '/etc/passwd',
+    ]);
     expect(adapter.isPathAllowed(config, '/etc/passwd')).toBe(false);
     expect(adapter.isPathAllowed(config, '/home/other-user/secret')).toBe(false);
   });
@@ -217,24 +252,28 @@ describe('SandboxAdapter — Network & Path Checks', () => {
 describe('SandboxAdapter — Execute', () => {
   const adapter = new SandboxAdapter();
 
-  it('executes with stubbed process (returns stub result)', async () => {
+  it('fails closed when execution is unavailable', async () => {
     const config = adapter.buildDefaultConfig(RiskClass.READ_ONLY, '/workspace', 'echo', ['hello']);
     const result = await adapter.execute(config, 'echo', ['hello']);
 
-    expect(result.outcome).toBe(SandboxOutcome.Completed);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('stubbed');
-    expect(result.evidence.command).toBe('echo');
+    expect(result.outcome).toBe(SandboxOutcome.Unavailable);
+    expect(result.exitCode).toBeNull();
+    expect(result.stdout).toBe('');
+    expect(result.evidence.executionStarted).toBe(false);
     expect(result.evidence.config).toEqual(config);
   });
 
   it('fails on invalid config', async () => {
     const config = adapter.buildDefaultConfig(RiskClass.PAYMENT, '/workspace', 'charge', []);
-    const badConfig = { ...config, networkPolicy: 'approved_domains' as const, allowedDomains: ['evil.com'] };
+    const badConfig = {
+      ...config,
+      networkPolicy: 'approved_domains' as const,
+      allowedDomains: ['evil.com'],
+    };
     const result = await adapter.execute(badConfig, 'charge', [], RiskClass.PAYMENT);
 
     expect(result.outcome).toBe(SandboxOutcome.SandboxError);
-    expect(result.exitCode).toBe(-1);
+    expect(result.exitCode).toBeNull();
     expect(result.stderr).toContain('Network must be blocked');
   });
 });
@@ -242,17 +281,19 @@ describe('SandboxAdapter — Execute', () => {
 describe('SandboxAdapter — Events', () => {
   const adapter = new SandboxAdapter();
 
-  it('emits lifecycle events during execution', async () => {
+  it('does not emit started or completed when execution is unavailable', async () => {
     const events: string[] = [];
     adapter.on('sandbox:preparing', () => events.push('preparing'));
     adapter.on('sandbox:started', () => events.push('started'));
     adapter.on('sandbox:completed', () => events.push('completed'));
+    adapter.on('sandbox:failed', () => events.push('failed'));
 
     const config = adapter.buildDefaultConfig(RiskClass.READ_ONLY, '/workspace', 'ls', []);
     await adapter.execute(config, 'ls', []);
 
     expect(events).toContain('preparing');
-    expect(events).toContain('started');
-    expect(events).toContain('completed');
+    expect(events).toContain('failed');
+    expect(events).not.toContain('started');
+    expect(events).not.toContain('completed');
   });
 });

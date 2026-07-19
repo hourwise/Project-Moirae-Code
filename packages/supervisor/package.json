@@ -14,10 +14,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@moirae/runtime-contracts": "*",
-    "@moirae/local-ipc": "*",
-    "@moirae/policy-profiles": "*",
-    "@moirae/secret-broker": "*",
-    "@moirae/network-broker": "*"
+    "@moirae/fates-inspection": "*",
+    "@moirae/host-contracts": "*"
   }
 }

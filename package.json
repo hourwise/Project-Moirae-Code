@@ -19,10 +19,18 @@
     "test:coverage": "vitest run --coverage",
     "lint": "eslint . --ext .ts,.tsx",
     "format": "prettier --write \"**/*.{ts,tsx,json,md}\"",
-    "format:check": "prettier --check \"**/*.{ts,tsx,json,md}\"",
+    "format:check": "node scripts/format-check.mjs",
     "validate:env": "node scripts/environment-check.mjs",
+    "verify:adrasteia": "node scripts/verify-adrasteia.mjs",
+    "verify:peers": "node scripts/verify-peer-checkpoints.mjs",
+    "test:adrasteia": "vitest run tests/stage-a/adrasteia-stage-a.test.ts",
+    "test:ananke:comparator": "npm run verify:peers && npm run test:adrasteia",
+    "test:mnemosyne:comparator": "npm run verify:peers && npm run test:adrasteia",
+    "test:horae:comparator": "npm run verify:peers && npm run test:adrasteia",
+    "diagnostics:smoke": "node apps/diagnostics-cli/dist/index.js inspect --json && node apps/diagnostics-cli/dist/index.js verify-adrasteia && node apps/diagnostics-cli/dist/index.js verify-peers",
     "validate:quick": "npm run build && npm test",
-    "validate:full": "npm run build && npm test && npm run lint && npm run format:check",
+    "validate:full": "npm run build && npm run lint && npm run format:check && npm test",
+    "validate": "npm run validate:env && npm run verify:adrasteia && npm run verify:peers && npm run validate:full",
     "postinstall": "node scripts/postinstall.mjs"
   },
   "devDependencies": {
@@ -40,5 +48,8 @@
   },
   "engines": {
     "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "project-runtime-contracts": "https://github.com/hourwise/Project-Adrasteia/releases/download/adrasteia-adoption-v0.4.0-protocol-1.4.0/project-runtime-contracts-0.4.0.tgz"
   }
 }

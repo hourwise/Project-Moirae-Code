@@ -15,11 +15,7 @@ import type {
   SkillOutcome,
   ReticleScanResult,
 } from './types.js';
-import {
-  SkillTrustState,
-  SkillKind,
-  SkillLifecycleEvent,
-} from './types.js';
+import { SkillTrustState, SkillKind, SkillLifecycleEvent } from './types.js';
 import { SkillManifestSchema } from './types.js';
 import type { ReticleScanner } from './reticle.js';
 import { DefaultReticleScanner } from './reticle.js';
@@ -93,6 +89,9 @@ export class SkillRegistry extends EventEmitter {
       installPath,
       contentHash,
       active: false,
+      installed: false,
+      enabled: false,
+      exposed: false,
       lastScanResult: null,
       updateCount: 0,
       revisionHistory: [],
@@ -118,7 +117,10 @@ export class SkillRegistry extends EventEmitter {
   // ═══════════════════════════════════════════════════════════
 
   /** Inspect a skill manifest without importing it. Returns scan results. */
-  inspect(raw: unknown, content: string): {
+  inspect(
+    raw: unknown,
+    content: string,
+  ): {
     valid: boolean;
     manifest: SkillManifest | null;
     scanResult: ReticleScanResult | null;
@@ -168,6 +170,8 @@ export class SkillRegistry extends EventEmitter {
 
     record.trustState = SkillTrustState.Revoked;
     record.active = false;
+    record.enabled = false;
+    record.exposed = false;
 
     this.emit('skill:trusted', record);
     return record;
@@ -187,7 +191,7 @@ export class SkillRegistry extends EventEmitter {
   // INSTALL
   // ═══════════════════════════════════════════════════════════
 
-  /** Activate a trusted skill. The skill must be Trusted before installation. */
+  /** Install a trusted skill. Installation does not enable or expose it. */
   install(skillId: string): SkillRecord {
     const record = this.getOrThrow(skillId);
 
@@ -197,9 +201,40 @@ export class SkillRegistry extends EventEmitter {
       );
     }
 
+    record.installed = true;
+    // Preserve the legacy lifecycle marker for installed records.  Capability
+    // exposure remains separately gated by `enabled` and `exposed`.
     record.active = true;
     this.emit('skill:installed', record);
     return record;
+  }
+
+  /** Enable an installed skill locally; execution remains proposal-only. */
+  enable(skillId: string): SkillRecord {
+    const record = this.getOrThrow(skillId);
+    if (!record.installed || record.trustState !== SkillTrustState.Trusted)
+      throw new Error(`Skill "${skillId}" must be installed and Trusted before enablement.`);
+    record.enabled = true;
+    record.active = true;
+    return record;
+  }
+
+  /** Expose metadata to a model. Exposure is descriptive and never authorization. */
+  expose(skillId: string): SkillRecord {
+    const record = this.getOrThrow(skillId);
+    if (!record.enabled) throw new Error(`Skill "${skillId}" must be enabled before exposure.`);
+    record.exposed = true;
+    return record;
+  }
+
+  admission(skillId: string): { exposed: boolean; authorized: false; reason: string } {
+    const record = this.getOrThrow(skillId);
+    return {
+      exposed: record.exposed,
+      authorized: false,
+      reason:
+        'Skill evidence, trust, and exposure do not grant action authority; model calls remain proposals.',
+    };
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -230,7 +265,9 @@ export class SkillRegistry extends EventEmitter {
 
     // If pinned, reject update
     if (record.pinnedRevision) {
-      throw new Error(`Skill "${skillId}" is pinned at revision ${record.pinnedRevision}. Unpin first.`);
+      throw new Error(
+        `Skill "${skillId}" is pinned at revision ${record.pinnedRevision}. Unpin first.`,
+      );
     }
 
     const parsed = SkillManifestSchema.parse(raw);
@@ -265,6 +302,8 @@ export class SkillRegistry extends EventEmitter {
     record.trustedAt = null;
     record.trustedBy = null;
     record.active = false;
+    record.enabled = false;
+    record.exposed = false;
 
     // Re-classify
     this.autoClassify(record);
@@ -300,7 +339,9 @@ export class SkillRegistry extends EventEmitter {
     record.contentHash = revision.contentHash;
     record.trustState = revision.trustState;
     record.lastScanResult = revision.scanResult;
-    record.active = revision.trustState === SkillTrustState.Trusted;
+    record.active = false;
+    record.enabled = false;
+    record.exposed = false;
 
     this.emit('skill:rolled-back', record, revision.version);
     return record;
@@ -402,10 +443,7 @@ export class SkillRegistry extends EventEmitter {
     if (!scan) return;
 
     // Auto-trust first-party publishers if scan is clean
-    if (
-      scan.verdict === 'clean' &&
-      this.trustedPublishers.has(record.manifest.publisher)
-    ) {
+    if (scan.verdict === 'clean' && this.trustedPublishers.has(record.manifest.publisher)) {
       record.trustState = SkillTrustState.Trusted;
       record.trustedAt = new Date().toISOString();
       record.trustedBy = 'system';
@@ -439,7 +477,7 @@ export class SkillRegistry extends EventEmitter {
     let hash = 0;
     for (let i = 0; i < content.length; i++) {
       const char = content.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
+      hash = (hash << 5) - hash + char;
       hash |= 0; // Convert to 32-bit integer
     }
     return 'sk_' + Math.abs(hash).toString(16).padStart(8, '0');

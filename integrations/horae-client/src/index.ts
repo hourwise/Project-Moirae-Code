@@ -1,54 +1,34 @@
-/**
- * @moirae/horae-client — Typed client for the Horae orchestration API.
- *
- * Horae coordinates: runtime discovery, compatibility negotiation,
- * least-capability task composition, session lifecycle, health supervision,
- * degraded-state coordination, and aggregate task outcomes.
- */
-
-import type { RuntimeSession, RuntimeComposition } from '@moirae/runtime-contracts';
-
-export interface HoraeClientConfig {
-  baseUrl: string;
+/** Horae's pinned Stage-A surface is embedded/CLI/transport-neutral inspection, not HTTP sessions. */
+import { parseRuntimeInspection, type RuntimeInspection } from '@moirae/adrasteia-adapter';
+export interface HoraeInspectionClientConfig {
+  inspect: () => Promise<unknown> | unknown;
 }
-
-export class HoraeClient {
-  constructor(private config: HoraeClientConfig) {}
-
-  /** Start a new governed session with a task and profile. */
-  async startSession(params: {
-    projectId: string;
-    task: string;
-    profileId?: string;
-  }): Promise<RuntimeSession> {
-    const res = await fetch(`${this.config.baseUrl}/v1/sessions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(params),
-    });
-    return (await res.json()) as RuntimeSession;
+export class HoraeSessionTransportUnavailable extends Error {
+  constructor() {
+    super(
+      'Horae session transport is unavailable: Moirae Stage-A does not invent an HTTP session API.',
+    );
+    this.name = 'HoraeSessionTransportUnavailable';
   }
-
-  /** Send a message within an active session. */
-  async sendMessage(sessionId: string, message: string): Promise<unknown> {
-    const res = await fetch(`${this.config.baseUrl}/v1/sessions/${sessionId}/messages`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message }),
-    });
-    return await res.json();
+}
+export class HoraeInspectionClient {
+  constructor(private readonly config: HoraeInspectionClientConfig) {}
+  async inspect(): Promise<RuntimeInspection> {
+    return parseRuntimeInspection(await this.config.inspect());
   }
-
-  /** Cancel an active session. */
-  async cancelSession(sessionId: string): Promise<void> {
-    await fetch(`${this.config.baseUrl}/v1/sessions/${sessionId}/cancel`, {
-      method: 'POST',
-    });
+}
+/** @deprecated Session operations fail closed until a real Horae handoff exists. */
+export class HoraeClient extends HoraeInspectionClient {
+  async startSession(): Promise<never> {
+    throw new HoraeSessionTransportUnavailable();
   }
-
-  /** Get the current runtime composition for a session. */
-  async getComposition(sessionId: string): Promise<RuntimeComposition> {
-    const res = await fetch(`${this.config.baseUrl}/v1/sessions/${sessionId}/composition`);
-    return (await res.json()) as RuntimeComposition;
+  async sendMessage(): Promise<never> {
+    throw new HoraeSessionTransportUnavailable();
+  }
+  async cancelSession(): Promise<never> {
+    throw new HoraeSessionTransportUnavailable();
+  }
+  async getComposition(): Promise<never> {
+    throw new HoraeSessionTransportUnavailable();
   }
 }

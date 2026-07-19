@@ -15,7 +15,10 @@ import type {
   TokenCountRequest,
   TokenCount,
   ProviderHealth,
+  ProviderCredentialAccessor,
+  ProviderCredentialReference,
 } from '@moirae/provider-sdk';
+import { sanitizeProviderError, validateProviderEndpoint } from '@moirae/provider-sdk';
 
 // ── Anthropic API Types ─────────────────────────────────────
 
@@ -96,15 +99,18 @@ const KNOWN_MODELS: ModelDescriptor[] = [
 // ── Provider Implementation ─────────────────────────────────
 
 export interface AnthropicConfig {
-  apiKey: string;
   baseUrl?: string;
+  credential?: ProviderCredentialReference;
+  credentialAccessor?: ProviderCredentialAccessor;
+  fetchImpl?: typeof fetch;
 }
 
 export class AnthropicProvider implements ModelProvider {
   readonly identity = {
     runtime: 'anthropic-adapter',
     version: '0.1.0',
-    protocolVersion: '1.1.0',
+    protocolVersion: '1.4.0',
+    minimumProtocolVersion: '1.0.0',
   };
 
   readonly manifest: ProviderManifest = {
@@ -116,9 +122,17 @@ export class AnthropicProvider implements ModelProvider {
   };
 
   private readonly baseUrl: string;
+  private readonly request: typeof fetch;
 
   constructor(private config: AnthropicConfig) {
     this.baseUrl = config.baseUrl ?? 'https://api.anthropic.com';
+    validateProviderEndpoint(this.baseUrl, 'remote');
+    this.request = config.fetchImpl ?? fetch;
+  }
+
+  private async apiKey(): Promise<string | null> {
+    if (!this.config.credential || !this.config.credentialAccessor) return null;
+    return (await this.config.credentialAccessor.lease(this.config.credential))?.value ?? null;
   }
 
   async discoverModels(): Promise<ModelDescriptor[]> {
@@ -169,23 +183,23 @@ export class AnthropicProvider implements ModelProvider {
     if (request.temperature !== undefined) body.temperature = request.temperature;
     if (request.stop) body.stop_sequences = request.stop;
 
-    const res = await fetch(`${this.baseUrl}/v1/messages`, {
+    const apiKey = await this.apiKey();
+    const res = await this.request(`${this.baseUrl}/v1/messages`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': this.config.apiKey,
+        ...(apiKey ? { 'x-api-key': apiKey } : {}),
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify(body),
     });
 
     if (!res.ok) {
-      const errorText = await res.text();
       let errorCode = 'PROVIDER_ERROR';
       if (res.status === 401) errorCode = 'AUTHENTICATION_ERROR';
       if (res.status === 429) errorCode = 'RATE_LIMIT_EXCEEDED';
       if (res.status === 400) errorCode = 'INVALID_REQUEST';
-      yield { type: 'error', code: errorCode, message: `HTTP ${res.status}: ${errorText}` };
+      yield { type: 'error', code: errorCode, message: sanitizeProviderError(res.status) };
       return;
     }
 
@@ -204,7 +218,8 @@ export class AnthropicProvider implements ModelProvider {
       }
     }
 
-    const finishReason = data.stop_reason === 'tool_use' ? 'tool_calls' : (data.stop_reason ?? 'stop');
+    const finishReason =
+      data.stop_reason === 'tool_use' ? 'tool_calls' : (data.stop_reason ?? 'stop');
     yield { type: 'done', finishReason };
   }
 
@@ -216,11 +231,12 @@ export class AnthropicProvider implements ModelProvider {
   async healthCheck(): Promise<ProviderHealth> {
     try {
       const start = Date.now();
-      const res = await fetch(`${this.baseUrl}/v1/messages`, {
+      const apiKey = await this.apiKey();
+      const res = await this.request(`${this.baseUrl}/v1/messages`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-api-key': this.config.apiKey,
+          ...(apiKey ? { 'x-api-key': apiKey } : {}),
           'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify({
@@ -230,7 +246,11 @@ export class AnthropicProvider implements ModelProvider {
         }),
       });
       // 200 or 4xx with a valid response = endpoint reachable
-      return { available: res.ok || res.status === 400 || res.status === 401, latencyMs: Date.now() - start, activeRequests: 0 };
+      return {
+        available: res.ok || res.status === 400 || res.status === 401,
+        latencyMs: Date.now() - start,
+        activeRequests: 0,
+      };
     } catch {
       return { available: false, latencyMs: 0, activeRequests: 0, message: 'Unreachable' };
     }

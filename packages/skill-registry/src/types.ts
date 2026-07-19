@@ -48,7 +48,9 @@ export const SkillTrustStateSchema = z.nativeEnum(SkillTrustState);
 
 export const SkillManifestSchema = z.object({
   /** Unique skill identifier (e.g., "moirae.python-refactor"). */
-  id: z.string().min(1),
+  id: z
+    .string()
+    .regex(/^[a-z0-9][a-z0-9-]*(?:\.[a-z0-9][a-z0-9-]*)+$/, 'Skill IDs must be namespaced.'),
   /** Human-readable name. */
   name: z.string().min(1),
   /** Skill kind: guidance, workflow, or executable. */
@@ -98,6 +100,12 @@ export interface SkillRecord {
   contentHash: string;
   /** Whether the skill is currently active. */
   active: boolean;
+  /** Import is not installation. */
+  installed: boolean;
+  /** Installation is not enablement. */
+  enabled: boolean;
+  /** Enablement is not exposure to a model. */
+  exposed: boolean;
   /** Reticle scan result from last scan. */
   lastScanResult: ReticleScanResult | null;
   /** Number of times this skill has been updated. */

@@ -1,0 +1,19 @@
+{
+  "name": "@moirae/adrasteia-adapter",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pure Project Adrasteia parsing, mapping, validation, and inspection composition for Moirae",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc --build",
+    "clean": "rimraf dist",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@moirae/host-contracts": "*",
+    "project-runtime-contracts": "https://github.com/hourwise/Project-Adrasteia/releases/download/adrasteia-adoption-v0.4.0-protocol-1.4.0/project-runtime-contracts-0.4.0.tgz"
+  }
+}

@@ -94,6 +94,8 @@ export interface SandboxResult {
 }
 
 export enum SandboxOutcome {
+  /** No process was started; Stage-A intentionally fails closed. */
+  Unavailable = 'unavailable',
   Completed = 'completed',
   Failed = 'failed',
   TimedOut = 'timed_out',
@@ -110,6 +112,8 @@ export enum SandboxOutcome {
 // ═══════════════════════════════════════════════════════════════
 
 export interface SandboxEvidence {
+  /** True only when an execution process actually began. */
+  executionStarted: boolean;
   /** The sandbox configuration used (for audit trail). */
   config: SandboxConfig;
   /** Command or operation executed. */

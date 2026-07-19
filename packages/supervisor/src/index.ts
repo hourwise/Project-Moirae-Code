@@ -1,349 +1,200 @@
 /**
- * @moirae/supervisor — Local control plane for the Moirae runtime ecosystem.
- *
- * Responsibilities:
- *   - Process startup/shutdown for Ananke, Mnemosyne, Horae
- *   - Service discovery and health monitoring
- *   - Database migrations (per-runtime SQLite)
- *   - Crash recovery with state reconstruction
- *   - Local session credentials
- *   - Component version compatibility checks
- *
- * The supervisor does NOT run the Fates inside the extension host.
- * Each Fate runs as a separate process for crash isolation.
- *
- * Currently: health check + crash recovery logic implemented.
- * Process spawning is stubbed until the external Fates reach minimum viability.
+ * Local process observation plus read-only peer inspection. The supervisor is
+ * not a Fate authority and does not spawn, execute, approve, retrieve memory,
+ * or treat HTTP status as a health report.
  */
-
 import { EventEmitter } from 'node:events';
-import type {
-  ComponentHealth,
-  CrashRecord,
-  SupervisorConfig as MoiraeSupervisorConfig,
-  ComponentConfig,
-} from '@moirae/runtime-contracts';
 import {
-  ComponentHealthStatus,
-  CrashRecoveryAction,
-} from '@moirae/runtime-contracts';
+  FatesInspectionCoordinator,
+  type PeerInspectionSource,
+  type PeerInspectionSummary,
+} from '@moirae/fates-inspection';
+import {
+  LocalProcessState,
+  type ComponentHealth,
+  type CrashRecord,
+  type SupervisorConfig,
+} from '@moirae/host-contracts';
 
-// ── Re-export types for convenience ─────────────────────────
+export type { ComponentHealth, CrashRecord, SupervisorConfig };
+export { LocalProcessState };
 
-export type { ComponentHealth, CrashRecord, MoiraeSupervisorConfig as SupervisorConfig };
-export { ComponentHealthStatus, CrashRecoveryAction };
-
-// ── Events ──────────────────────────────────────────────────
+/** @deprecated Local process states, retained only for source compatibility. */
+export const ComponentHealthStatus = {
+  STARTING: LocalProcessState.Starting,
+  HEALTHY: LocalProcessState.Running,
+  DEGRADED: LocalProcessState.SpawnDisabled,
+  UNHEALTHY: LocalProcessState.NotManaged,
+  CRASHED: LocalProcessState.Crashed,
+  STOPPED: LocalProcessState.NotManaged,
+  RESTARTING: LocalProcessState.SpawnDisabled,
+} as const;
+export const CrashRecoveryAction = {
+  RESTART: 'restart_disabled',
+  RESTART_WITH_BACKOFF: 'restart_disabled',
+  DEGRADE: 'degraded',
+  STOP_ALL: 'degraded',
+} as const;
 
 export interface SupervisorEvents {
-  'component:health-changed': (health: ComponentHealth) => void;
+  'component:process-changed': (observation: ComponentHealth) => void;
   'component:crashed': (record: CrashRecord) => void;
-  'component:recovered': (componentId: string) => void;
+  'peer:inspected': (report: PeerInspectionSummary) => void;
   'supervisor:degraded': (componentIds: string[]) => void;
-  'supervisor:healthy': () => void;
 }
 
-// ── Supervisor Implementation ───────────────────────────────
+export interface PeerObservation {
+  peer: PeerInspectionSummary;
+  localInspectedAt: string;
+  freshness: 'fresh' | 'unavailable';
+}
+
+const redactStderr = (value: string | null): string | null => {
+  if (!value) return null;
+  return value
+    .replace(/(?:bearer\s+\S+|api[_-]?key\s*[=:]\s*\S+|token\s*[=:]\s*\S+)/gi, '[REDACTED]')
+    .slice(0, 2048);
+};
 
 export class MoiraeSupervisor extends EventEmitter {
-  private components = new Map<string, ComponentHealth>();
-  private crashHistory = new Map<string, CrashRecord[]>();
+  private readonly components = new Map<string, ComponentHealth>();
+  private readonly crashHistory = new Map<string, CrashRecord[]>();
+  private readonly peerObservations = new Map<string, PeerObservation>();
   private healthCheckTimer: ReturnType<typeof setInterval> | null = null;
   private running = false;
 
-  constructor(private config: MoiraeSupervisorConfig) {
+  constructor(
+    private readonly config: SupervisorConfig,
+    private readonly peers: PeerInspectionSource[] = [],
+    private readonly instanceId = `moirae-supervisor-${process.pid}`,
+    private readonly startedAt = Date.now(),
+  ) {
     super();
   }
 
-  // ═══════════════════════════════════════════════════════════
-  // LIFECYCLE
-  // ═══════════════════════════════════════════════════════════
-
-  /** Start all enabled components and begin health monitoring. */
   async start(): Promise<void> {
     this.running = true;
-    console.log('[supervisor] Starting Moirae runtime components...');
-
-    // Initialize health records for all configured components
-    for (const [name, compConfig] of Object.entries(this.config.components)) {
-      if (!compConfig.enabled) continue;
-
-      this.components.set(name, {
-        componentId: name,
-        status: ComponentHealthStatus.STARTING,
+    for (const [componentId, component] of Object.entries(this.config.components)) {
+      if (!component.enabled) continue;
+      this.components.set(componentId, {
+        componentId,
+        status: LocalProcessState.SpawnDisabled,
         pid: null,
-        port: compConfig.port,
-        uptimeMs: 0,
+        port: component.port ?? null,
+        startedAt: null,
+        exitCode: null,
         restartCount: 0,
-        lastError: null,
-        lastCheckTime: new Date().toISOString(),
+        lastError: 'Process spawning is disabled until packaged entrypoints are proven.',
+        lastObservedAt: new Date().toISOString(),
       });
     }
-
-    // Spawn component processes (stubbed until Fate runtimes are available)
-    await this.spawnAllComponents();
-
-    // Begin health check polling
-    this.startHealthChecks();
-  }
-
-  /** Gracefully stop all managed components and health monitoring. */
-  async stop(): Promise<void> {
-    this.running = false;
-    this.stopHealthChecks();
-
-    console.log('[supervisor] Stopping all components...');
-
-    for (const [name, health] of this.components) {
-      if (health.pid) {
-        await this.killComponent(name, health.pid);
-      }
-      health.status = ComponentHealthStatus.STOPPED;
-    }
-
-    this.emit('supervisor:healthy');
-  }
-
-  // ═══════════════════════════════════════════════════════════
-  // HEALTH MONITORING
-  // ═══════════════════════════════════════════════════════════
-
-  private startHealthChecks(): void {
+    await this.runHealthChecks();
     this.healthCheckTimer = setInterval(
       () => void this.runHealthChecks(),
       this.config.healthCheckIntervalMs,
     );
   }
 
-  private stopHealthChecks(): void {
-    if (this.healthCheckTimer) {
-      clearInterval(this.healthCheckTimer);
-      this.healthCheckTimer = null;
+  async stop(): Promise<void> {
+    this.running = false;
+    if (this.healthCheckTimer) clearInterval(this.healthCheckTimer);
+    this.healthCheckTimer = null;
+    for (const [id, observed] of this.components) {
+      const next = {
+        ...observed,
+        status: LocalProcessState.NotManaged,
+        lastObservedAt: new Date().toISOString(),
+      };
+      this.components.set(id, next);
+      this.emit('component:process-changed', next);
     }
   }
 
-  /** Run health checks against all managed components. */
+  /** Runs only configured inspection callbacks; it never assumes an HTTP surface. */
   async runHealthChecks(): Promise<ComponentHealth[]> {
-    const results: ComponentHealth[] = [];
-
-    for (const [name, health] of this.components) {
-      if (!this.running || health.status === ComponentHealthStatus.STOPPED) continue;
-
-      const componentConfig = this.getComponentConfig(name);
-      if (!componentConfig) continue;
-
-      const updated = await this.checkComponentHealth(name, health, componentConfig);
-      this.components.set(name, updated);
-      results.push(updated);
+    if (!this.running) return this.status();
+    const coordinator = new FatesInspectionCoordinator({
+      version: '0.1.0',
+      instanceId: this.instanceId,
+      startedAt: this.startedAt,
+      peers: this.peers,
+    });
+    const report = await coordinator.inspect();
+    for (const peer of report.peers) {
+      const observation: PeerObservation = {
+        peer,
+        localInspectedAt: new Date().toISOString(),
+        freshness: peer.availability === 'available' ? 'fresh' : 'unavailable',
+      };
+      this.peerObservations.set(peer.id, observation);
+      this.emit('peer:inspected', peer);
     }
-
-    // Detect overall degraded state
-    const unhealthy = results.filter(
-      (h) => h.status === ComponentHealthStatus.UNHEALTHY || h.status === ComponentHealthStatus.CRASHED,
-    );
-    if (unhealthy.length > 0) {
-      this.emit('supervisor:degraded', unhealthy.map((h) => h.componentId));
-    } else if (results.every((h) => h.status === ComponentHealthStatus.HEALTHY)) {
-      this.emit('supervisor:healthy');
-    }
-
-    return results;
+    return this.status();
   }
 
-  private async checkComponentHealth(
-    name: string,
-    current: ComponentHealth,
-    config: ComponentConfig,
-  ): Promise<ComponentHealth> {
-    const now = new Date().toISOString();
+  status(): ComponentHealth[] {
+    return [...this.components.values()];
+  }
+  peerStatus(): PeerObservation[] {
+    return [...this.peerObservations.values()];
+  }
+  crashHistoryFor(componentId: string): CrashRecord[] {
+    return this.crashHistory.get(componentId) ?? [];
+  }
 
-    try {
-      const url = `http://127.0.0.1:${config.port}${config.healthEndpoint}`;
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 5000);
-
-      const res = await fetch(url, { signal: controller.signal });
-      clearTimeout(timeout);
-
-      if (res.ok) {
-        const previousStatus = current.status;
-        const updated: ComponentHealth = {
-          ...current,
-          status: ComponentHealthStatus.HEALTHY,
-          uptimeMs: current.uptimeMs + this.config.healthCheckIntervalMs,
-          lastError: null,
-          lastCheckTime: now,
-        };
-
-        if (previousStatus !== ComponentHealthStatus.HEALTHY) {
-          this.emit('component:health-changed', updated);
-          if (previousStatus === ComponentHealthStatus.CRASHED || previousStatus === ComponentHealthStatus.UNHEALTHY) {
-            this.emit('component:recovered', name);
-          }
-        }
-
-        return updated;
+  async checkCompatibility(): Promise<{ compatible: boolean; issues: string[] }> {
+    await this.runHealthChecks();
+    const issues: string[] = [];
+    for (const peer of this.peers) {
+      const observation = this.peerObservations.get(peer.id)?.peer;
+      if (!observation || observation.availability !== 'available') {
+        issues.push(`${peer.id}: inspection unavailable`);
+        continue;
       }
-
-      // Endpoint returned non-200
-      return {
-        ...current,
-        status: ComponentHealthStatus.DEGRADED,
-        lastError: `HTTP ${res.status}`,
-        lastCheckTime: now,
-      };
-    } catch (err) {
-      // Connection refused or timeout — component may be down
-      return {
-        ...current,
-        status: ComponentHealthStatus.UNHEALTHY,
-        lastError: err instanceof Error ? err.message : 'Unknown error',
-        lastCheckTime: now,
-      };
+      if (!observation.compatibility?.compatible)
+        issues.push(
+          `${peer.id}: protocol incompatibility (${observation.compatibility?.reason ?? 'unknown'})`,
+        );
     }
+    return {
+      compatible: issues.length === 0 && this.peers.length > 0,
+      issues: this.peers.length === 0 ? ['No configured peer inspection sources.'] : issues,
+    };
   }
 
-  // ═══════════════════════════════════════════════════════════
-  // CRASH RECOVERY
-  // ═══════════════════════════════════════════════════════════
-
-  /** Handle a component crash: determine recovery action, record it, and act. */
-  async handleCrash(componentId: string, exitCode: number | null, signal: string | null, stderr: string | null): Promise<void> {
-    const health = this.components.get(componentId);
-    if (!health) return;
-
-    const history = this.crashHistory.get(componentId) ?? [];
-    const restartAttempt = health.restartCount + 1;
-
-    // Determine recovery action based on restart count vs max allowed
-    let recoveryAction: CrashRecoveryAction;
-    if (restartAttempt >= this.config.maxRestartAttempts) {
-      recoveryAction = CrashRecoveryAction.DEGRADE;
-    } else if (restartAttempt >= Math.floor(this.config.maxRestartAttempts * 0.7)) {
-      recoveryAction = CrashRecoveryAction.RESTART_WITH_BACKOFF;
-    } else {
-      recoveryAction = CrashRecoveryAction.RESTART;
-    }
-
+  async handleCrash(
+    componentId: string,
+    exitCode: number | null,
+    signal: string | null,
+    stderr: string | null,
+  ): Promise<void> {
+    const current = this.components.get(componentId);
+    if (!current) return;
+    const restartAttempt = current.restartCount + 1;
     const record: CrashRecord = {
       componentId,
       timestamp: new Date().toISOString(),
       exitCode,
       signal,
-      stderr,
+      stderr: redactStderr(stderr),
       restartAttempt,
-      recoveryAction,
+      recoveryAction:
+        restartAttempt >= this.config.maxRestartAttempts ? 'degraded' : 'restart_disabled',
     };
-
-    history.push(record);
+    const history = [...(this.crashHistory.get(componentId) ?? []), record].slice(-20);
     this.crashHistory.set(componentId, history);
-
-    // Update component health
-    const updated: ComponentHealth = {
-      ...health,
-      status: ComponentHealthStatus.CRASHED,
+    const next: ComponentHealth = {
+      ...current,
+      status: LocalProcessState.Crashed,
       pid: null,
-      lastError: stderr ?? `Exit code: ${exitCode}`,
+      exitCode,
       restartCount: restartAttempt,
-      lastCheckTime: record.timestamp,
+      lastError: record.stderr ?? `Process exited (${exitCode ?? 'unknown'}).`,
+      lastObservedAt: record.timestamp,
     };
-    this.components.set(componentId, updated);
-
+    this.components.set(componentId, next);
     this.emit('component:crashed', record);
-
-    // Execute recovery action
-    switch (recoveryAction) {
-      case CrashRecoveryAction.RESTART:
-        console.log(`[supervisor] Restarting ${componentId} (attempt ${restartAttempt})...`);
-        updated.status = ComponentHealthStatus.RESTARTING;
-        await this.delay(this.config.restartCooldownMs);
-        await this.spawnComponent(componentId);
-        break;
-
-      case CrashRecoveryAction.RESTART_WITH_BACKOFF:
-        console.log(`[supervisor] Restarting ${componentId} with backoff (attempt ${restartAttempt})...`);
-        updated.status = ComponentHealthStatus.RESTARTING;
-        await this.delay(this.config.restartCooldownMs * restartAttempt);
-        await this.spawnComponent(componentId);
-        break;
-
-      case CrashRecoveryAction.DEGRADE:
-        console.error(`[supervisor] ${componentId} exceeded max restart attempts (${this.config.maxRestartAttempts}). Entering degraded mode.`);
-        updated.status = ComponentHealthStatus.DEGRADED;
-        this.components.set(componentId, updated);
-        this.emit('supervisor:degraded', [componentId]);
-        break;
-    }
-  }
-
-  // ═══════════════════════════════════════════════════════════
-  // PROCESS MANAGEMENT (stubbed until Fate runtimes available)
-  // ═══════════════════════════════════════════════════════════
-
-  private async spawnAllComponents(): Promise<void> {
-    for (const [name] of this.components) {
-      await this.spawnComponent(name);
-    }
-  }
-
-  private async spawnComponent(_componentId: string): Promise<void> {
-    // TODO: Use child_process.spawn() to launch Ananke/Mnemosyne/Horae processes.
-    // Each process gets:
-    //   - Isolated environment variables
-    //   - Separate SQLite database path
-    //   - Assigned port from config
-    //   - stdio piped for health check communication
-    //
-    // Implementation blocked until Fate runtimes have stable CLI entrypoints.
-    console.log(`[supervisor] Component '${_componentId}' spawn stubbed — Fate runtime not yet available.`);
-  }
-
-  private async killComponent(_componentId: string, pid: number): Promise<void> {
-    try {
-      process.kill(pid, 'SIGTERM');
-      // Wait up to 10 seconds for graceful shutdown
-      await this.waitForExit(pid, 10_000);
-    } catch {
-      // Force kill if still running
-      try { process.kill(pid, 'SIGKILL'); } catch { /* already dead */ }
-    }
-  }
-
-  private async waitForExit(_pid: number, _timeoutMs: number): Promise<void> {
-    // TODO: Poll process.kill(pid, 0) until it throws
-  }
-
-  // ═══════════════════════════════════════════════════════════
-  // QUERIES
-  // ═══════════════════════════════════════════════════════════
-
-  /** Returns the health status of all managed components. */
-  status(): ComponentHealth[] {
-    return [...this.components.values()];
-  }
-
-  /** Get crash history for a component. */
-  crashHistoryFor(componentId: string): CrashRecord[] {
-    return this.crashHistory.get(componentId) ?? [];
-  }
-
-  /** Check component version compatibility before starting. */
-  async checkCompatibility(): Promise<{ compatible: boolean; issues: string[] }> {
-    // TODO: Query each component's RuntimeIdentity endpoint and compare protocol versions
-    return { compatible: true, issues: [] };
-  }
-
-  // ═══════════════════════════════════════════════════════════
-  // HELPERS
-  // ═══════════════════════════════════════════════════════════
-
-  private getComponentConfig(name: string): ComponentConfig | undefined {
-    const components = this.config.components as Record<string, ComponentConfig>;
-    return components[name];
-  }
-
-  private delay(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+    this.emit('component:process-changed', next);
+    this.emit('supervisor:degraded', [componentId]);
   }
 }
-

@@ -13,6 +13,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@moirae/runtime-contracts": "*"
+    "@moirae/host-contracts": "*",
+    "project-runtime-contracts": "https://github.com/hourwise/Project-Adrasteia/releases/download/adrasteia-adoption-v0.4.0-protocol-1.4.0/project-runtime-contracts-0.4.0.tgz"
   }
 }

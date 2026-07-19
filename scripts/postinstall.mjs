@@ -27,8 +27,16 @@ check(`Node.js >= 22 (found ${process.version})`, nodeMajor >= 22);
 const osOk = ['Windows_NT', 'Linux', 'Darwin'].includes(type());
 check(`Supported OS (${type()} ${release()} ${arch()})`, osOk);
 
-const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-const hasNpm = (() => { try { execFileSync(npmCmd, ['--version'], { encoding: 'utf8' }); return true; } catch { return false; } })();
+const npmCmd = process.platform === 'win32' ? process.env.ComSpec ?? 'cmd.exe' : 'npm';
+const npmArgs = process.platform === 'win32' ? ['/d', '/s', '/c', 'npm --version'] : ['--version'];
+const hasNpm = (() => {
+  try {
+    execFileSync(npmCmd, npmArgs, { encoding: 'utf8' });
+    return true;
+  } catch {
+    return false;
+  }
+})();
 check('npm available', hasNpm);
 
 console.log(`\n  Finished at ${new Date().toISOString()}`);

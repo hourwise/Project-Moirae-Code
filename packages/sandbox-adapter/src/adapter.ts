@@ -157,7 +157,9 @@ export class SandboxAdapter extends EventEmitter {
 
     // 6. Child process restrictions
     if (config.allowChildProcesses && config.mode === ExecutionMode.MicroVM) {
-      errors.push('Child processes should not be allowed in MicroVM mode without explicit justification.');
+      errors.push(
+        'Child processes should not be allowed in MicroVM mode without explicit justification.',
+      );
     }
 
     // 7. Environment allowlist must not include credential-related vars
@@ -170,7 +172,11 @@ export class SandboxAdapter extends EventEmitter {
 
     // 8. Allowed paths must be within workspace or explicitly justified
     for (const path of config.allowedPaths) {
-      if (!path.startsWith(config.workspaceRoot) && !path.startsWith('/tmp/') && !path.startsWith('/temp/')) {
+      if (
+        !path.startsWith(config.workspaceRoot) &&
+        !path.startsWith('/tmp/') &&
+        !path.startsWith('/temp/')
+      ) {
         errors.push(
           `Allowed path '${path}' is outside workspace root '${config.workspaceRoot}' and is not a temp directory.`,
         );
@@ -185,23 +191,35 @@ export class SandboxAdapter extends EventEmitter {
    * This is the contract for the approval UI — it surfaces exactly what
    * will happen, what's at risk, and how evidence will be collected.
    */
-  buildApprovalPreview(config: SandboxConfig, command: string, args: string[]): SandboxApprovalPreview {
+  buildApprovalPreview(
+    config: SandboxConfig,
+    command: string,
+    args: string[],
+  ): SandboxApprovalPreview {
     const riskScore = this.assessRisk(config);
 
     const evidenceCapture: string[] = [];
     if (config.captureOutput) evidenceCapture.push('stdout/stderr');
-    if (config.captureFilesystemChanges) evidenceCapture.push('filesystem changes (created/modified/deleted)');
+    if (config.captureFilesystemChanges)
+      evidenceCapture.push('filesystem changes (created/modified/deleted)');
 
     return {
-      description: `${config.mode} execution: ${command} ${args.join(' ')}`,
-      repositoryScope: [config.workspaceRoot, ...config.allowedPaths],
+      description: `${config.mode} execution proposal: ${this.redactCommand(command)} (${args.length} argument${args.length === 1 ? '' : 's'})`,
+      repositoryScope: [
+        'workspace',
+        ...(config.allowedPaths.length > 0
+          ? [`${config.allowedPaths.length} configured additional path reference(s)`]
+          : []),
+      ],
       networkScope:
         config.networkPolicy === 'blocked'
           ? ['none (blocked)']
           : config.networkPolicy === 'loopback_only'
             ? ['127.0.0.1 only']
             : config.allowedDomains,
-      secrets: config.allowedSecrets,
+      secrets: config.allowedSecrets.map(
+        (secret) => `secret-reference:${this.redactSecretReference(secret)}`,
+      ),
       limits: {
         maxDurationMs: config.maxDurationMs,
         maxOutputBytes: config.maxOutputBytes,
@@ -227,15 +245,38 @@ export class SandboxAdapter extends EventEmitter {
    * the contract: validate config → prepare sandbox → execute → capture
    * evidence → cleanup → return structured result.
    */
-  async execute(config: SandboxConfig, command: string, args: string[], riskClass: RiskClass = RiskClass.INTERNAL_WRITE): Promise<SandboxResult> {
+  async execute(
+    config: SandboxConfig,
+    command: string,
+    args: string[],
+    riskClass: RiskClass = RiskClass.INTERNAL_WRITE,
+  ): Promise<SandboxResult> {
     // Validate
     const validation = this.validate(config, riskClass);
     if (!validation.valid) {
-      return this.failureResult(config, command, args, SandboxOutcome.SandboxError, validation.errors.join('; '));
+      return this.failureResult(
+        config,
+        command,
+        args,
+        SandboxOutcome.SandboxError,
+        validation.errors.join('; '),
+      );
     }
 
     this.emit('sandbox:preparing', config);
     const startTime = new Date().toISOString();
+
+    // Stage-A does not have an executor. Returning here prevents every legacy
+    // stub path below from fabricating a process start, completion, or exit code.
+    const unavailable = this.failureResult(
+      config,
+      command,
+      args,
+      SandboxOutcome.Unavailable,
+      'Sandbox execution is unavailable until a verified Ananke disposition and stable action binding exist.',
+    );
+    this.emit('sandbox:failed', unavailable, unavailable.stderr);
+    return unavailable;
 
     // TODO: Spawn child process / container / microVM / remote sandbox
     // This is stubbed until Ananke provides the governed execution layer.
@@ -246,6 +287,7 @@ export class SandboxAdapter extends EventEmitter {
     const endTime = new Date().toISOString();
 
     const evidence: SandboxEvidence = {
+      executionStarted: true,
       config,
       command,
       args,
@@ -267,8 +309,8 @@ export class SandboxAdapter extends EventEmitter {
     };
 
     const result: SandboxResult = {
-      outcome: SandboxOutcome.Completed,
-      exitCode: 0,
+      outcome: SandboxOutcome.Unavailable,
+      exitCode: null,
       stdout: '[sandbox] Execution stubbed — Fate runtime not yet available.',
       stderr: '',
       durationMs: 0,
@@ -326,7 +368,9 @@ export class SandboxAdapter extends EventEmitter {
 
     if (normalized.startsWith(config.workspaceRoot.replace(/\\/g, '/'))) return true;
     if (normalized.startsWith('/tmp/') || normalized.startsWith('/temp/')) return true;
-    return config.allowedPaths.some((allowed) => normalized.startsWith(allowed.replace(/\\/g, '/')));
+    return config.allowedPaths.some((allowed) =>
+      normalized.startsWith(allowed.replace(/\\/g, '/')),
+    );
   }
 
   // ═══════════════════════════════════════════════════════════
@@ -364,18 +408,23 @@ export class SandboxAdapter extends EventEmitter {
 
   private describeSideEffects(config: SandboxConfig): string[] {
     const effects: string[] = [];
-    if (config.captureFilesystemChanges) effects.push('May create, modify, or delete files within workspace.');
+    if (config.captureFilesystemChanges)
+      effects.push('May create, modify, or delete files within workspace.');
     if (config.networkPolicy !== 'blocked') effects.push('May make outbound network connections.');
-    if (config.secretsPolicy !== 'none') effects.push(`May access ${config.allowedSecrets.length} secrets.`);
+    if (config.secretsPolicy !== 'none')
+      effects.push(`May access ${config.allowedSecrets.length} secrets.`);
     if (config.allowChildProcesses) effects.push('May spawn child processes.');
-    if (effects.length === 0) effects.push('No significant side effects expected (read-only, no network).');
+    if (effects.length === 0)
+      effects.push('No significant side effects expected (read-only, no network).');
     return effects;
   }
 
   private describeRiskFactors(config: SandboxConfig): string[] {
     const factors: string[] = [];
-    if (config.mode === ExecutionMode.Host) factors.push('No process isolation — runs with host privileges.');
-    if (config.mode === ExecutionMode.RestrictedProcess) factors.push('Process-level isolation only — no filesystem or network namespacing.');
+    if (config.mode === ExecutionMode.Host)
+      factors.push('No process isolation — runs with host privileges.');
+    if (config.mode === ExecutionMode.RestrictedProcess)
+      factors.push('Process-level isolation only — no filesystem or network namespacing.');
     if (config.networkPolicy !== 'blocked') factors.push('Network access enabled.');
     if (config.secretsPolicy !== 'none') factors.push('Secrets exposed to sandbox.');
     if (config.allowChildProcesses) factors.push('Child processes permitted.');
@@ -392,7 +441,7 @@ export class SandboxAdapter extends EventEmitter {
   ): SandboxResult {
     return {
       outcome,
-      exitCode: -1,
+      exitCode: null,
       stdout: '',
       stderr: error,
       durationMs: 0,
@@ -400,10 +449,11 @@ export class SandboxAdapter extends EventEmitter {
       outputTruncated: false,
       forciblyTerminated: false,
       evidence: {
+        executionStarted: false,
         config,
-        command,
-        args,
-        workingDirectory: config.workspaceRoot,
+        command: this.redactCommand(command),
+        args: args.map(() => '[redacted argument]'),
+        workingDirectory: 'workspace',
         startTime: new Date().toISOString(),
         endTime: new Date().toISOString(),
         filesCreated: [],
@@ -415,5 +465,15 @@ export class SandboxAdapter extends EventEmitter {
         resourceUsage: { cpuTimeMs: 0, maxMemoryMb: 0, diskReadBytes: 0, diskWriteBytes: 0 },
       },
     };
+  }
+
+  private redactCommand(command: string): string {
+    return command.length > 0
+      ? `[command:${command.replace(/[^a-zA-Z0-9._-]/g, '').slice(0, 32) || 'redacted'}]`
+      : '[command:redacted]';
+  }
+
+  private redactSecretReference(reference: string): string {
+    return reference.replace(/[^a-zA-Z0-9._-]/g, '').slice(0, 32) || 'redacted';
   }
 }

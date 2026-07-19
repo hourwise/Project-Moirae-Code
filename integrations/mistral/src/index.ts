@@ -7,7 +7,13 @@
  */
 
 import { OpenAICompatibleProvider } from '@moirae/provider-openai-compatible';
-import type { ModelDescriptor, ProviderManifest, ProviderHealth } from '@moirae/provider-sdk';
+import type {
+  ModelDescriptor,
+  ProviderManifest,
+  ProviderHealth,
+  ProviderCredentialAccessor,
+  ProviderCredentialReference,
+} from '@moirae/provider-sdk';
 
 const MISTRAL_KNOWN_MODELS: ModelDescriptor[] = [
   {
@@ -61,8 +67,10 @@ const MISTRAL_KNOWN_MODELS: ModelDescriptor[] = [
 ];
 
 export interface MistralConfig {
-  apiKey: string;
   baseUrl?: string;
+  credential?: ProviderCredentialReference;
+  credentialAccessor?: ProviderCredentialAccessor;
+  fetchImpl?: typeof fetch;
 }
 
 export class MistralProvider extends OpenAICompatibleProvider {
@@ -77,7 +85,9 @@ export class MistralProvider extends OpenAICompatibleProvider {
   constructor(config: MistralConfig) {
     super({
       baseUrl: config.baseUrl ?? 'https://api.mistral.ai/v1',
-      apiKey: config.apiKey,
+      credential: config.credential,
+      credentialAccessor: config.credentialAccessor,
+      fetchImpl: config.fetchImpl,
     });
   }
 
@@ -90,10 +100,14 @@ export class MistralProvider extends OpenAICompatibleProvider {
   override async healthCheck(): Promise<ProviderHealth> {
     try {
       const start = Date.now();
-      const res = await fetch('https://api.mistral.ai/v1/models', {
-        headers: { Authorization: `Bearer ${this.config.apiKey ?? ''}` },
+      const res = await this.request(`${this.config.baseUrl}/models`, {
+        headers: await this.authorizationHeaders(),
       });
-      return { available: res.ok || res.status === 401, latencyMs: Date.now() - start, activeRequests: 0 };
+      return {
+        available: res.ok || res.status === 401,
+        latencyMs: Date.now() - start,
+        activeRequests: 0,
+      };
     } catch {
       return { available: false, latencyMs: 0, activeRequests: 0, message: 'Unreachable' };
     }

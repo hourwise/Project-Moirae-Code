@@ -13,6 +13,6 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@moirae/runtime-contracts": "*"
+    "@moirae/adrasteia-adapter": "*"
   }
 }

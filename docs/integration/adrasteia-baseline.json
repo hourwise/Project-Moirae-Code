@@ -1,0 +1,79 @@
+{
+  "project": "Project Moirae Code",
+  "runtime": "moirae-code",
+  "adrasteia": {
+    "repository": "https://github.com/hourwise/Project-Adrasteia",
+    "tag": "adrasteia-adoption-v0.4.0-protocol-1.4.0",
+    "commit": "124b6aee2629a3147739934ad5f1b45b32c8ba46",
+    "package": "project-runtime-contracts",
+    "version": "0.4.0",
+    "artifactUrl": "https://github.com/hourwise/Project-Adrasteia/releases/download/adrasteia-adoption-v0.4.0-protocol-1.4.0/project-runtime-contracts-0.4.0.tgz",
+    "sidecarUrl": "https://github.com/hourwise/Project-Adrasteia/releases/download/adrasteia-adoption-v0.4.0-protocol-1.4.0/project-runtime-contracts-0.4.0.tgz.baseline.json",
+    "sha256": "11ee062b079f74d2a4558af315c9b9b12a6aede291d409c48f038d93c416e2c2",
+    "protocol": { "current": "1.4.0", "minimum": "1.0.0", "maximum": "1.4.0" },
+    "contentPreflightIncluded": false
+  },
+  "adoptedFamilies": [
+    "principal identity",
+    "agent execution context",
+    "resource scope",
+    "correlation",
+    "portable references",
+    "runtime inspection",
+    "registration",
+    "capabilities",
+    "compatibility",
+    "semantic negotiation"
+  ],
+  "adapterMappings": [
+    "Moirae runtime inspection",
+    "canonical peer inspection parsing",
+    "semantic protocol negotiation"
+  ],
+  "moiraeLocalFamilies": [
+    "host operation context",
+    "supervisor process observation",
+    "crash records",
+    "extension view models",
+    "provider and sandbox metadata",
+    "proposal records",
+    "packaging"
+  ],
+  "deprecatedFacades": [
+    "@moirae/runtime-contracts re-exports only; removal is deferred for downstream migration"
+  ],
+  "deferredFamilies": [
+    "content-preflight",
+    "Ananke handoff",
+    "Mnemosyne retrieval",
+    "Horae sessions",
+    "sandbox execution",
+    "production credential keychain"
+  ],
+  "peers": {
+    "ananke": {
+      "repository": "https://github.com/hourwise/Project-Ananke",
+      "tag": "ananke-adrasteia-adoption-v0.1.0-protocol-1.4.0",
+      "commit": "dcbb115c5798072221afdd2e4fdd36e786defddf",
+      "inspection": "documented public sanitized HTTP runtime routes"
+    },
+    "mnemosyne": {
+      "repository": "https://github.com/hourwise/Project-Mnemosyne",
+      "tag": "mnemosyne-adrasteia-adoption-v0.1.0-protocol-1.4.0",
+      "commit": "f4ab76a9760f856d78908d35facceb068d78c8e5",
+      "inspection": "transport-neutral runtime facade and MCP inspection only"
+    },
+    "horae": {
+      "repository": "https://github.com/hourwise/Project-Horae",
+      "tag": "horae-adrasteia-adoption-v0.1.0-protocol-1.4.0",
+      "commit": "52e14fa574f7427f62747fe84d2789aec25b94e3",
+      "inspection": "embedded/CLI/transport-neutral inspection only"
+    }
+  },
+  "verificationCommands": [
+    "Get-FileHash project-runtime-contracts-0.4.0.tgz -Algorithm SHA256",
+    "git ls-remote --tags https://github.com/hourwise/Project-Adrasteia.git adrasteia-adoption-v0.4.0-protocol-1.4.0^{}",
+    "npm run verify:adrasteia",
+    "npm run verify:peers"
+  ]
+}

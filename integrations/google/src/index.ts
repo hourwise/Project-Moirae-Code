@@ -16,7 +16,10 @@ import type {
   ProviderHealth,
   ChatMessage,
   ToolDefinition,
+  ProviderCredentialAccessor,
+  ProviderCredentialReference,
 } from '@moirae/provider-sdk';
+import { sanitizeProviderError, validateProviderEndpoint } from '@moirae/provider-sdk';
 
 // ── Gemini API Types ────────────────────────────────────────
 
@@ -54,7 +57,11 @@ interface GeminiResponse {
     content?: { role: string; parts: GeminiPart[] };
     finishReason?: string;
   }>;
-  usageMetadata?: { promptTokenCount: number; candidatesTokenCount: number; totalTokenCount: number };
+  usageMetadata?: {
+    promptTokenCount: number;
+    candidatesTokenCount: number;
+    totalTokenCount: number;
+  };
 }
 
 // ── Known Gemini Models ─────────────────────────────────────
@@ -113,15 +120,18 @@ function toGeminiTools(tools: ToolDefinition[] | undefined): GeminiTool[] | unde
 // ── Provider Implementation ─────────────────────────────────
 
 export interface GoogleConfig {
-  apiKey: string;
   baseUrl?: string;
+  credential?: ProviderCredentialReference;
+  credentialAccessor?: ProviderCredentialAccessor;
+  fetchImpl?: typeof fetch;
 }
 
 export class GoogleProvider implements ModelProvider {
   readonly identity = {
     runtime: 'google-adapter',
     version: '0.1.0',
-    protocolVersion: '1.1.0',
+    protocolVersion: '1.4.0',
+    minimumProtocolVersion: '1.0.0',
   };
 
   readonly manifest: ProviderManifest = {
@@ -133,9 +143,17 @@ export class GoogleProvider implements ModelProvider {
   };
 
   private readonly baseUrl: string;
+  private readonly request: typeof fetch;
 
   constructor(private config: GoogleConfig) {
     this.baseUrl = config.baseUrl ?? 'https://generativelanguage.googleapis.com';
+    validateProviderEndpoint(this.baseUrl, 'remote');
+    this.request = config.fetchImpl ?? fetch;
+  }
+
+  private async apiKey(): Promise<string | null> {
+    if (!this.config.credential || !this.config.credentialAccessor) return null;
+    return (await this.config.credentialAccessor.lease(this.config.credential))?.value ?? null;
   }
 
   async discoverModels(): Promise<ModelDescriptor[]> {
@@ -169,20 +187,21 @@ export class GoogleProvider implements ModelProvider {
       };
     }
 
-    const url = `${this.baseUrl}/v1beta/models/${request.modelId}:generateContent?key=${this.config.apiKey}`;
+    const url = new URL(`${this.baseUrl}/v1beta/models/${request.modelId}:generateContent`);
+    const apiKey = await this.apiKey();
+    if (apiKey) url.searchParams.set('key', apiKey);
 
-    const res = await fetch(url, {
+    const res = await this.request(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
 
     if (!res.ok) {
-      const errorText = await res.text();
       let errorCode = 'PROVIDER_ERROR';
       if (res.status === 401 || res.status === 403) errorCode = 'AUTHENTICATION_ERROR';
       if (res.status === 429) errorCode = 'RATE_LIMIT_EXCEEDED';
-      yield { type: 'error', code: errorCode, message: `HTTP ${res.status}: ${errorText}` };
+      yield { type: 'error', code: errorCode, message: sanitizeProviderError(res.status) };
       return;
     }
 
@@ -217,8 +236,10 @@ export class GoogleProvider implements ModelProvider {
   async healthCheck(): Promise<ProviderHealth> {
     try {
       const start = Date.now();
-      const url = `${this.baseUrl}/v1beta/models/gemini-2.5-flash?key=${this.config.apiKey}`;
-      const res = await fetch(url);
+      const url = new URL(`${this.baseUrl}/v1beta/models/gemini-2.5-flash`);
+      const apiKey = await this.apiKey();
+      if (apiKey) url.searchParams.set('key', apiKey);
+      const res = await this.request(url);
       return { available: res.ok, latencyMs: Date.now() - start, activeRequests: 0 };
     } catch {
       return { available: false, latencyMs: 0, activeRequests: 0, message: 'Unreachable' };

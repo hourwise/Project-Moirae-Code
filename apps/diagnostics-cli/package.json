@@ -16,7 +16,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@moirae/runtime-contracts": "*",
-    "@moirae/supervisor": "*"
+    "@moirae/adrasteia-adapter": "*",
+    "@moirae/fates-inspection": "*"
   }
 }

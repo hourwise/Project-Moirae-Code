@@ -2,11 +2,5 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": { "outDir": "dist", "rootDir": "src", "tsBuildInfoFile": "dist/.tsbuildinfo" },
   "include": ["src"],
-  "references": [
-    { "path": "../runtime-contracts" },
-    { "path": "../local-ipc" },
-    { "path": "../policy-profiles" },
-    { "path": "../secret-broker" },
-    { "path": "../network-broker" }
-  ]
+  "references": [{ "path": "../fates-inspection" }, { "path": "../host-contracts" }]
 }

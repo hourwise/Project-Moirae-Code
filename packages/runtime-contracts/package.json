@@ -2,7 +2,7 @@
   "name": "@moirae/runtime-contracts",
   "version": "0.1.0",
   "private": true,
-  "description": "Shared protocol types, schemas, and constants for the Moirae runtime ecosystem",
+  "description": "Deprecated compatibility facade for Project Adrasteia and Moirae host contracts",
   "license": "MIT",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -19,6 +19,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "zod": "^3.24.0"
+    "@moirae/host-contracts": "*",
+    "project-runtime-contracts": "https://github.com/hourwise/Project-Adrasteia/releases/download/adrasteia-adoption-v0.4.0-protocol-1.4.0/project-runtime-contracts-0.4.0.tgz"
   }
 }

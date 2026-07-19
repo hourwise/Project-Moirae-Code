@@ -1,67 +1,41 @@
-/**
- * @moirae/mnemosyne-client — Typed client for Mnemosyne MCP Almanac tools.
- *
- * Mnemosyne governs memory: onboarding, provenance, reliability, retrieval,
- * conflict detection, decay, and context-pack construction.
- * This client wraps the Mnemosyne MCP server tools.
- */
-
-export interface MnemosyneClientConfig {
-  mcpCommand: string;
-  mcpArgs: string[];
+/** Mnemosyne is transport-neutral in its pinned Stage-A checkpoint. */
+import { parseRuntimeInspection, type RuntimeInspection } from '@moirae/adrasteia-adapter';
+export interface MnemosyneInspectionClientConfig {
+  inspect: () => Promise<unknown> | unknown;
 }
-
-export interface ContextPack {
-  task: string;
-  relevantMemories: unknown[];
-  sourceSnippets: unknown[];
-  conflicts: unknown[];
-  warnings: string[];
-  openQuestions: string[];
-  tokenEstimate: number;
+export class QualifiedContextBoundaryUnavailable extends Error {
+  constructor() {
+    super('Qualified Mnemosyne context is unavailable: Stage-A exposes inspection only.');
+    this.name = 'QualifiedContextBoundaryUnavailable';
+  }
 }
-
-export class MnemosyneClient {
-  constructor(private config: MnemosyneClientConfig) {}
-
-  /** Return Almanac health and storage status. */
-  async status(): Promise<unknown> {
-    return this.callTool('almanac_status', {});
+export class MnemosyneInspectionClient {
+  constructor(private readonly config: MnemosyneInspectionClientConfig) {}
+  async inspect(): Promise<RuntimeInspection> {
+    return parseRuntimeInspection(await this.config.inspect());
   }
-
-  /** Search governed memory records by text, tag, or kind. */
-  async search(query: { text?: string; tag?: string; kind?: string }): Promise<unknown[]> {
-    return (await this.callTool('almanac_search', query)) as unknown[];
+}
+/** @deprecated No MCP memory transport or qualified context is implemented in Moirae Stage-A. */
+export class MnemosyneClient extends MnemosyneInspectionClient {
+  async status(): Promise<never> {
+    throw new QualifiedContextBoundaryUnavailable();
   }
-
-  /** Build a task-specific context pack. */
-  async getContextPack(task: string): Promise<ContextPack> {
-    return (await this.callTool('almanac_get_context_pack', { task })) as ContextPack;
+  async search(): Promise<never> {
+    throw new QualifiedContextBoundaryUnavailable();
   }
-
-  /** Read a single governed memory record by ID. */
-  async readMemory(id: string): Promise<unknown> {
-    return this.callTool('almanac_read_memory', { id });
+  async getContextPack(): Promise<never> {
+    throw new QualifiedContextBoundaryUnavailable();
   }
-
-  /** Write a new memory record into the Almanac. */
-  async writeMemory(memory: unknown): Promise<unknown> {
-    return this.callTool('almanac_write_memory', { memory });
+  async readMemory(): Promise<never> {
+    throw new QualifiedContextBoundaryUnavailable();
   }
-
-  /** Report a detected conflict for audit and retrieval visibility. */
-  async reportConflict(conflict: unknown): Promise<unknown> {
-    return this.callTool('almanac_report_conflict', { conflict });
+  async writeMemory(): Promise<never> {
+    throw new QualifiedContextBoundaryUnavailable();
   }
-
-  /** Revalidate a memory against its current source. */
-  async revalidate(memoryId: string, currentSourceHash?: string): Promise<unknown> {
-    return this.callTool('almanac_revalidate', { memoryId, currentSourceHash });
+  async reportConflict(): Promise<never> {
+    throw new QualifiedContextBoundaryUnavailable();
   }
-
-  private async callTool(name: string, args: Record<string, unknown>): Promise<unknown> {
-    // TODO: Implement MCP stdio transport to Mnemosyne MCP server.
-    // For now, this is a placeholder showing the intended API surface.
-    throw new Error(`Mnemosyne MCP transport not yet implemented. Tool: ${name}`);
+  async revalidate(): Promise<never> {
+    throw new QualifiedContextBoundaryUnavailable();
   }
 }

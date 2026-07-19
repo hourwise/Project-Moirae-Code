@@ -1,10 +1,7 @@
-// @moirae/runtime-contracts — Shared protocol types, schemas, and constants
-// This package is intentionally contracts-only: no engines, no persistence, no runtime behavior.
-
-export * from './identity/index.js';
-export * from './runtime/index.js';
-export * from './results/index.js';
-export * from './audit/index.js';
-export * from './protocol/index.js';
-export * from './constants/index.js';
-export * from './moirae/index.js';
+/**
+ * @deprecated Temporary compatibility facade. New code must import portable
+ * contracts from project-runtime-contracts and Moirae-owned contracts from
+ * @moirae/host-contracts. This package defines no portable schemas.
+ */
+export * from 'project-runtime-contracts';
+export * from '@moirae/host-contracts';

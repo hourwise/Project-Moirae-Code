@@ -2,5 +2,5 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": { "outDir": "dist", "rootDir": "src", "tsBuildInfoFile": "dist/.tsbuildinfo" },
   "include": ["src"],
-  "references": [{ "path": "../../packages/runtime-contracts" }]
+  "references": [{ "path": "../../packages/adrasteia-adapter" }]
 }
