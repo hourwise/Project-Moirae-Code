@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@moirae/adrasteia-adapter": "*",
+    "@moirae/host-contracts": "*",
     "@moirae/fates-inspection": "*"
   }
 }

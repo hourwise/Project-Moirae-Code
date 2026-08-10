@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { FatesInspectionCoordinator } from '@moirae/fates-inspection';
 import { ADRASTEIA_BASELINE, negotiateWithMoirae } from '@moirae/adrasteia-adapter';
+import { Slice03AHost } from './slice03a-host.js';
 
 const version = '0.1.0';
 const baselinePath = resolve(process.cwd(), 'docs', 'integration', 'adrasteia-baseline.json');
@@ -89,6 +90,11 @@ async function protocol(): Promise<void> {
   });
 }
 
+async function runSlice03A(): Promise<void> {
+  const result = await Slice03AHost.fromEnvironment().invoke();
+  print(result);
+}
+
 const [command = 'help', option] = process.argv.slice(2);
 const handlers: Record<string, () => Promise<void>> = {
   inspect,
@@ -96,10 +102,11 @@ const handlers: Record<string, () => Promise<void>> = {
   'verify-peers': verifyPeers,
   'governance-boundary': governanceBoundary,
   protocol,
+  'run-003a': runSlice03A,
 };
 if (command === 'help' || !handlers[command]) {
   console.log(
-    'moirae-diag commands: inspect --json, verify-adrasteia, verify-peers, governance-boundary, protocol',
+    'moirae-diag commands: inspect --json, verify-adrasteia, verify-peers, governance-boundary, protocol, run-003a',
   );
   if (command !== 'help') process.exitCode = 1;
 } else {
