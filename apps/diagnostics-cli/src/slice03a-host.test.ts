@@ -5,10 +5,13 @@ import {
   SLICE03A_FIXTURE_SHA256,
   SLICE03A_REQUEST_SCHEMA_ID,
   SLICE03A_REQUEST_SCHEMA_SHA256,
+  SLICE03A_R1_REQUEST_SCHEMA_ID,
+  SLICE03A_R1_REQUEST_SCHEMA_SHA256,
   SLICE03A_ROUTE_PATH,
   Slice03AHost,
   Slice03AHostError,
   slice03AOriginDigest,
+  slice03AR1OriginDigest,
 } from './slice03a-host.js';
 
 const config = (fetchImpl: typeof fetch, overrides: Record<string, unknown> = {}) =>
@@ -30,6 +33,37 @@ const typedRouteResult = (overrides: Record<string, unknown> = {}) => ({
 });
 
 describe('Moirae FATES-SLICE-003A host/origin boundary', () => {
+  it('builds explicit R1 application identity without claiming process authentication', () => {
+    const audience = 'fates.slice03a.r1.horae:horae-r1-test:POST:/slice-02/governed-actions';
+    const host = config(async () => new Response('{}'), {
+      requestIdentityVersion: 'r1-v2',
+      horaeAudience: audience,
+    });
+
+    const { body, evidence } = host.buildRequest();
+    const receipt = (body.origin as Record<string, any>).receipt as Record<string, any>;
+
+    expect(receipt).toMatchObject({
+      schemaId: SLICE03A_R1_REQUEST_SCHEMA_ID,
+      schemaSha256: SLICE03A_R1_REQUEST_SCHEMA_SHA256,
+      audience,
+      validity: {
+        notBefore: expect.any(String),
+        expiresAt: expect.any(String),
+      },
+    });
+    expect(receipt.originDigest).toBe(
+      slice03AR1OriginDigest({
+        originId: receipt.originId,
+        audience,
+        validity: receipt.validity,
+      }),
+    );
+    expect(evidence.applicationIdentityVersion).toBe('r1-v2');
+    expect(evidence.audience).toBe(audience);
+    expect(JSON.stringify(body)).not.toContain('authorization');
+  });
+
   it('starts with trusted launch identity and sends one fixed request to Horae only', async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     const host = config(async (input, init) => {
@@ -161,6 +195,14 @@ describe('Moirae FATES-SLICE-003A host/origin boundary', () => {
         }),
     ).toThrow('base URL');
     expect(() => Slice03AHost.fromEnvironment({})).toThrow('MOIRAE_003A_INSTANCE_ID');
+    expect(() =>
+      Slice03AHost.fromEnvironment({
+        MOIRAE_003A_INSTANCE_ID: 'moirae-r1-test',
+        MOIRAE_003A_ARTIFACT: 'artifact',
+        MOIRAE_003A_HORAE_ENDPOINT: 'http://horae.test',
+        MOIRAE_003A_REQUEST_IDENTITY_VERSION: 'r1-v2',
+      }),
+    ).toThrow('MOIRAE_003A_HORAE_AUDIENCE');
   });
 
   it('preserves indeterminate transport loss without retry or duplicate dispatch', async () => {

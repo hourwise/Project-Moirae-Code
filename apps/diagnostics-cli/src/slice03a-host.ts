@@ -10,12 +10,20 @@ export const SLICE03A_ROUTE_PATH = '/slice-02/governed-actions';
 export const SLICE03A_REQUEST_SCHEMA_ID = 'urn:fates:slice02:inspect-fixed-fixture-request:v1';
 export const SLICE03A_REQUEST_SCHEMA_SHA256 =
   'db1864fdc4978d6befb4b6d3913461e4f2d2732dd0ca87e076977ab98cf6049c';
+export const SLICE03A_R1_REQUEST_SCHEMA_ID =
+  'urn:fates:slice02:inspect-fixed-fixture-request:r1-v2';
+export const SLICE03A_R1_REQUEST_SCHEMA_SHA256 =
+  '104ebc4267914426434968996b2ba2e774ad4ffd6bc2fb4c97b4193a1c7389db';
+export const SLICE03A_R1_AUDIENCE_PREFIX = 'fates.slice03a.r1.horae:';
+export const SLICE03A_R1_ROUTE_AUDIENCE_SUFFIX = ':POST:/slice-02/governed-actions';
 export const SLICE03A_RUNTIME = 'moirae-code';
 export const SLICE03A_VERSION = '0.1.0';
 export const SLICE03A_PURPOSE = 'slice02.fixed-fixture-inspection';
 
 const DEFAULT_TIMEOUT_MS = 3_000;
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+
+export type Slice03ARequestIdentityVersion = 'legacy-v1' | 'r1-v2';
 
 export interface Slice03AHostConfig {
   instanceId: string;
@@ -27,6 +35,8 @@ export interface Slice03AHostConfig {
   sessionId?: string;
   authenticatedPrincipalId?: string;
   actingPrincipalId?: string;
+  requestIdentityVersion?: Slice03ARequestIdentityVersion;
+  horaeAudience?: string;
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
 }
@@ -42,6 +52,8 @@ export interface Slice03AProcessOriginEvidence {
   originDigest: string;
   requestId: string;
   correlationId: string;
+  applicationIdentityVersion?: Slice03ARequestIdentityVersion;
+  audience?: string;
 }
 
 export type Slice03ARouteState =
@@ -130,6 +142,10 @@ export class Slice03AHost {
       ...(env['MOIRAE_003A_ACTING_PRINCIPAL']
         ? { actingPrincipalId: env['MOIRAE_003A_ACTING_PRINCIPAL'] }
         : {}),
+      requestIdentityVersion: requestIdentityVersionFromEnvironment(env),
+      ...(env['MOIRAE_003A_HORAE_AUDIENCE']
+        ? { horaeAudience: env['MOIRAE_003A_HORAE_AUDIENCE'] }
+        : {}),
     });
   }
 
@@ -141,7 +157,6 @@ export class Slice03AHost {
     const requestId = `moirae-003a-request-${randomUUID()}`;
     const correlationId = `moirae-003a-correlation-${randomUUID()}`;
     const originId = `moirae-003a-origin-${process.pid}-${randomUUID()}`;
-    const originDigest = slice03AOriginDigest(originId);
     const now = new Date().toISOString();
     const validity = {
       notBefore: now,
@@ -193,6 +208,7 @@ export class Slice03AHost {
       },
       hostIdentity,
     });
+    const requestIdentity = this.requestIdentity(originId, validity);
     const body: Record<string, unknown> = {
       action: SLICE03A_ACTION,
       arguments: {
@@ -203,13 +219,7 @@ export class Slice03AHost {
         runtime: SLICE03A_RUNTIME,
         instanceId: this.config.instanceId,
         artifact: this.config.artifact,
-        receipt: {
-          originId,
-          originDigest,
-          schemaId: SLICE03A_REQUEST_SCHEMA_ID,
-          schemaSha256: SLICE03A_REQUEST_SCHEMA_SHA256,
-          validity,
-        },
+        receipt: requestIdentity.receipt,
       },
       execution: context.execution,
       scope: context.scope,
@@ -226,9 +236,52 @@ export class Slice03AHost {
         executable: process.execPath,
         startedAt: new Date(this.startedAt).toISOString(),
         originId,
-        originDigest,
+        originDigest: requestIdentity.originDigest,
         requestId,
         correlationId,
+        applicationIdentityVersion: requestIdentity.version,
+        ...(requestIdentity.audience ? { audience: requestIdentity.audience } : {}),
+      },
+    };
+  }
+
+  private requestIdentity(
+    originId: string,
+    validity: { notBefore: string; expiresAt: string },
+  ): {
+    version: Slice03ARequestIdentityVersion;
+    originDigest: string;
+    audience?: string;
+    receipt: Record<string, unknown>;
+  } {
+    const version = this.config.requestIdentityVersion ?? 'legacy-v1';
+    if (version === 'legacy-v1') {
+      return {
+        version,
+        originDigest: slice03AOriginDigest(originId),
+        receipt: {
+          originId,
+          originDigest: slice03AOriginDigest(originId),
+          schemaId: SLICE03A_REQUEST_SCHEMA_ID,
+          schemaSha256: SLICE03A_REQUEST_SCHEMA_SHA256,
+          validity,
+        },
+      };
+    }
+
+    const audience = this.config.horaeAudience!;
+    const originDigest = slice03AR1OriginDigest({ originId, audience, validity });
+    return {
+      version,
+      originDigest,
+      audience,
+      receipt: {
+        originId,
+        originDigest,
+        schemaId: SLICE03A_R1_REQUEST_SCHEMA_ID,
+        schemaSha256: SLICE03A_R1_REQUEST_SCHEMA_SHA256,
+        audience,
+        validity,
       },
     };
   }
@@ -272,6 +325,7 @@ export class Slice03AHost {
       routeResult: typedRouteResult,
       limitations: [
         '003A proves bounded process-origin and route evidence only.',
+        'R1 application request identity is freshness and audience evidence, not OS-authenticated process origin.',
         '003A does not prove OS containment, credential isolation, or complete bypass resistance.',
         'The IDE, renderer, extensions, terminals, child processes, and direct providers remain outside this claim.',
       ],
@@ -286,6 +340,25 @@ export function slice03AOriginDigest(originId: string): string {
         originId,
         schemaId: SLICE03A_REQUEST_SCHEMA_ID,
         schemaSha256: SLICE03A_REQUEST_SCHEMA_SHA256,
+      }),
+    )
+    .digest('hex');
+}
+
+export function slice03AR1OriginDigest(input: {
+  originId: string;
+  audience: string;
+  validity: { notBefore: string; expiresAt: string };
+}): string {
+  return createHash('sha256')
+    .update(
+      canonicalJson({
+        action: SLICE03A_ACTION,
+        audience: input.audience,
+        originId: input.originId,
+        schemaId: SLICE03A_R1_REQUEST_SCHEMA_ID,
+        schemaSha256: SLICE03A_R1_REQUEST_SCHEMA_SHA256,
+        validity: input.validity,
       }),
     )
     .digest('hex');
@@ -312,6 +385,15 @@ function validateConfig(config: Slice03AHostConfig): void {
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
     throw new Slice03AHostError('003A host timeout must be a positive safe integer.');
   }
+  const requestIdentityVersion = config.requestIdentityVersion ?? 'legacy-v1';
+  if (requestIdentityVersion !== 'legacy-v1' && requestIdentityVersion !== 'r1-v2') {
+    throw new Slice03AHostError('MOIRAE_003A_REQUEST_IDENTITY_VERSION is unsupported.');
+  }
+  if (requestIdentityVersion === 'r1-v2') {
+    if (!config.horaeAudience || !isCanonicalR1Audience(config.horaeAudience)) {
+      throw new Slice03AHostError('MOIRAE_003A_HORAE_AUDIENCE is required and malformed.');
+    }
+  }
 }
 
 function requiredEnvironment(env: NodeJS.ProcessEnv, name: string): string {
@@ -319,6 +401,33 @@ function requiredEnvironment(env: NodeJS.ProcessEnv, name: string): string {
   if (!value?.trim())
     throw new Slice03AHostError(`${name} is required for the trusted launch configuration.`);
   return value;
+}
+
+function requestIdentityVersionFromEnvironment(
+  env: NodeJS.ProcessEnv,
+): Slice03ARequestIdentityVersion {
+  const value = env['MOIRAE_003A_REQUEST_IDENTITY_VERSION'] ?? 'legacy-v1';
+  if (value !== 'legacy-v1' && value !== 'r1-v2') {
+    throw new Slice03AHostError('MOIRAE_003A_REQUEST_IDENTITY_VERSION is unsupported.');
+  }
+  if (value === 'r1-v2' && !env['MOIRAE_003A_HORAE_AUDIENCE']?.trim()) {
+    throw new Slice03AHostError('MOIRAE_003A_HORAE_AUDIENCE is required for R1 identity.');
+  }
+  return value;
+}
+
+function isCanonicalR1Audience(value: string): boolean {
+  if (
+    !value.startsWith(SLICE03A_R1_AUDIENCE_PREFIX) ||
+    !value.endsWith(SLICE03A_R1_ROUTE_AUDIENCE_SUFFIX)
+  ) {
+    return false;
+  }
+  const instanceId = value.slice(
+    SLICE03A_R1_AUDIENCE_PREFIX.length,
+    value.length - SLICE03A_R1_ROUTE_AUDIENCE_SUFFIX.length,
+  );
+  return ID_PATTERN.test(instanceId);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
