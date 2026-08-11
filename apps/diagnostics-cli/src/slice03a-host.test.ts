@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   SLICE03A_ACTION,
   SLICE03A_FIXTURE_ID,
@@ -7,11 +7,13 @@ import {
   SLICE03A_REQUEST_SCHEMA_SHA256,
   SLICE03A_R1_REQUEST_SCHEMA_ID,
   SLICE03A_R1_REQUEST_SCHEMA_SHA256,
+  SLICE03A_R1_VALIDITY_MS,
   SLICE03A_ROUTE_PATH,
   Slice03AHost,
   Slice03AHostError,
   slice03AOriginDigest,
   slice03AR1OriginDigest,
+  slice03AR1Validity,
 } from './slice03a-host.js';
 
 const config = (fetchImpl: typeof fetch, overrides: Record<string, unknown> = {}) =>
@@ -33,6 +35,29 @@ const typedRouteResult = (overrides: Record<string, unknown> = {}) => ({
 });
 
 describe('Moirae FATES-SLICE-003A host/origin boundary', () => {
+  it('builds a bounded R1 validity window from one clock sample', () => {
+    const nowMs = Date.parse('2026-08-11T15:24:26.123Z');
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(nowMs);
+    try {
+      const validity = slice03AR1Validity();
+      const durationMs = Date.parse(validity.expiresAt) - Date.parse(validity.notBefore);
+
+      expect(nowSpy).toHaveBeenCalledTimes(1);
+      expect(durationMs).toBe(SLICE03A_R1_VALIDITY_MS);
+      expect(durationMs).toBeLessThan(60_000);
+      expect(slice03AR1Validity(nowMs + 1)).toEqual({
+        notBefore: '2026-08-11T15:24:26.124Z',
+        expiresAt: '2026-08-11T15:25:25.124Z',
+      });
+      expect(
+        Date.parse(slice03AR1Validity(nowMs + 1).expiresAt) -
+          Date.parse(slice03AR1Validity(nowMs + 1).notBefore),
+      ).toBeLessThan(60_000);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
   it('builds explicit R1 application identity without claiming process authentication', () => {
     const audience = 'fates.slice03a.r1.horae:horae-r1-test:POST:/slice-02/governed-actions';
     const host = config(async () => new Response('{}'), {

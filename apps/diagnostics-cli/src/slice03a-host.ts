@@ -16,6 +16,7 @@ export const SLICE03A_R1_REQUEST_SCHEMA_SHA256 =
   '104ebc4267914426434968996b2ba2e774ad4ffd6bc2fb4c97b4193a1c7389db';
 export const SLICE03A_R1_AUDIENCE_PREFIX = 'fates.slice03a.r1.horae:';
 export const SLICE03A_R1_ROUTE_AUDIENCE_SUFFIX = ':POST:/slice-02/governed-actions';
+export const SLICE03A_R1_VALIDITY_MS = 59_000;
 export const SLICE03A_RUNTIME = 'moirae-code';
 export const SLICE03A_VERSION = '0.1.0';
 export const SLICE03A_PURPOSE = 'slice02.fixed-fixture-inspection';
@@ -157,11 +158,7 @@ export class Slice03AHost {
     const requestId = `moirae-003a-request-${randomUUID()}`;
     const correlationId = `moirae-003a-correlation-${randomUUID()}`;
     const originId = `moirae-003a-origin-${process.pid}-${randomUUID()}`;
-    const now = new Date().toISOString();
-    const validity = {
-      notBefore: now,
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
-    };
+    const validity = slice03AR1Validity();
     const hostIdentity = createMoiraeRuntimeInspection({
       version: SLICE03A_VERSION,
       instanceId: this.config.instanceId,
@@ -362,6 +359,17 @@ export function slice03AR1OriginDigest(input: {
       }),
     )
     .digest('hex');
+}
+
+export function slice03AR1Validity(nowMs: number = Date.now()): {
+  notBefore: string;
+  expiresAt: string;
+} {
+  if (!Number.isSafeInteger(nowMs)) throw new TypeError('R1 validity clock must be a safe integer');
+  return {
+    notBefore: new Date(nowMs).toISOString(),
+    expiresAt: new Date(nowMs + SLICE03A_R1_VALIDITY_MS).toISOString(),
+  };
 }
 
 function validateConfig(config: Slice03AHostConfig): void {
