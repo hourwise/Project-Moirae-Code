@@ -4,6 +4,7 @@
   "include": ["src"],
   "references": [
     { "path": "../../packages/adrasteia-adapter" },
+    { "path": "../../packages/host-contracts" },
     { "path": "../../packages/fates-inspection" }
   ]
 }
