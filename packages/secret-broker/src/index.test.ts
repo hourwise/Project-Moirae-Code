@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { InMemorySecretBroker, SecretLeaseError, SecretLeaseManager } from './index.js';
+import { InMemorySecretBroker, isProductionSecretBroker, OsKeyringSecretBroker, SecretLeaseError, SecretLeaseManager, type NativeKeyringEntryFactory } from './index.js';
 
 describe('SecretLeaseManager', () => {
   it('keeps credentials host-side and delivers a lease only once to an allowed destination', async () => {
@@ -44,5 +44,26 @@ describe('SecretLeaseManager', () => {
     );
     await expect(manager.deliver(lease.leaseId, 'guest:session-1', () => undefined)).rejects.toBeInstanceOf(SecretLeaseError);
     expect(manager.get(lease.leaseId)).toMatchObject({ leaseId: lease.leaseId });
+  });
+
+  it('does not accept a self-attested OS_BACKED marker as production capability', () => {
+    const dishonest = { credentialStore: 'OS_BACKED', get: async () => 'secret', set: async () => undefined, delete: async () => undefined, list: async () => [] };
+    const manager = new SecretLeaseManager(dishonest);
+    expect(manager.credentialStore).toBe('OS_BACKED');
+    expect(manager.productionCredentialStore).toBe(false);
+    expect(isProductionSecretBroker(dishonest)).toBe(false);
+  });
+
+  it('does not trust a directly constructed keyring-shaped broker without the production factory capability', () => {
+    class Entry implements NativeKeyringEntryFactory {
+      constructor(_service: string, _account: string) {}
+      getPassword = async () => null;
+      setPassword = async (_secret: string) => undefined;
+      deletePassword = async () => undefined;
+    }
+    const broker = new OsKeyringSecretBroker(Entry);
+    expect(broker.credentialStore).toBe('OS_BACKED');
+    expect(isProductionSecretBroker(broker)).toBe(false);
+    expect(new SecretLeaseManager(broker).productionCredentialStore).toBe(false);
   });
 });

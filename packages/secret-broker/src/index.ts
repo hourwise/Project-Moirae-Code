@@ -12,6 +12,8 @@
 
 import { randomUUID } from 'node:crypto';
 
+const PRODUCTION_CREDENTIAL_STORE_BRAND = Symbol('moirae.production-os-backed-credential-store');
+
 export type CredentialStoreMode = 'OS_BACKED' | 'DEVELOPMENT_IN_MEMORY';
 
 export interface SecretBroker {
@@ -71,12 +73,15 @@ export interface SecretLeaseManagerOptions {
  */
 export class SecretLeaseManager {
   readonly credentialStore: CredentialStoreMode;
+  /** Derived from the trusted broker construction path, not from a marker string. */
+  readonly productionCredentialStore: boolean;
   private readonly now: () => string;
   private readonly maxTtlMs: number;
   private readonly leases = new Map<string, ActiveLease>();
 
   constructor(private readonly broker: SecretBroker, options: SecretLeaseManagerOptions = {}) {
     this.credentialStore = broker.credentialStore;
+    this.productionCredentialStore = isProductionSecretBroker(broker);
     this.now = options.now ?? (() => new Date().toISOString());
     this.maxTtlMs = options.maxTtlMs ?? 5 * 60 * 1000;
     if (!Number.isSafeInteger(this.maxTtlMs) || this.maxTtlMs <= 0) throw new TypeError('maxTtlMs must be a positive safe integer');
@@ -217,8 +222,11 @@ export type NativeKeyringEntryFactory = new (service: string, account: string) =
 /** Production broker backed by the platform keyring through @napi-rs/keyring. */
 export class OsKeyringSecretBroker implements SecretBroker {
   readonly credentialStore = 'OS_BACKED' as const;
+  private readonly [PRODUCTION_CREDENTIAL_STORE_BRAND]: boolean;
 
-  constructor(private readonly Entry: NativeKeyringEntryFactory) {}
+  constructor(private readonly Entry: NativeKeyringEntryFactory, productionCapability?: symbol) {
+    this[PRODUCTION_CREDENTIAL_STORE_BRAND] = productionCapability === PRODUCTION_CREDENTIAL_STORE_BRAND;
+  }
 
   async get(service: string, account: string): Promise<string | null> {
     return this.entry(service, account).getPassword();
@@ -241,11 +249,17 @@ export class OsKeyringSecretBroker implements SecretBroker {
   }
 }
 
+/** Only the production factory-created broker carries this capability. */
+export function isProductionSecretBroker(value: SecretBroker): boolean {
+  if (!(value instanceof OsKeyringSecretBroker)) return false;
+  return value[PRODUCTION_CREDENTIAL_STORE_BRAND] === true;
+}
+
 /** Strict runtimes call this factory; failure means credential capability is unavailable. */
 export async function createProductionSecretBroker(): Promise<OsKeyringSecretBroker> {
   try {
     const keyring = await import('@napi-rs/keyring');
-    const broker = new OsKeyringSecretBroker(keyring.Entry as unknown as NativeKeyringEntryFactory);
+    const broker = new OsKeyringSecretBroker(keyring.Entry as unknown as NativeKeyringEntryFactory, PRODUCTION_CREDENTIAL_STORE_BRAND);
     await broker.get('fates-probe', 'availability-probe');
     return broker;
   } catch {

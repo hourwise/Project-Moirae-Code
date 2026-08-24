@@ -237,7 +237,7 @@ export class GuestWorkloadController {
   async deliverCredential(leaseId: string, destination: string, timeoutMs?: number, signal?: AbortSignal): Promise<CredentialLease> {
     if (!this.options.credentialLeases) throw new VsockChannelError('method_not_allowed', 'credential delivery is not configured');
     if ((this.options.credentialMode ?? 'strict') === 'strict') {
-      if (this.options.credentialLeases.credentialStore !== 'OS_BACKED') throw new VsockChannelError('method_not_allowed', 'strict credential delivery requires an OS-backed credential store');
+      if (!this.options.credentialLeases.productionCredentialStore) throw new VsockChannelError('method_not_allowed', 'strict credential delivery requires a trusted production OS-backed credential store');
       const strategy = this.options.credentialStrategy;
       if (!strategy) throw new VsockChannelError('method_not_allowed', 'raw long-lived credential delivery is disabled in strict mode');
       const lease = this.options.credentialLeases.authorize(leaseId, destination);
