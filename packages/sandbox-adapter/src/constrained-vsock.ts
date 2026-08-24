@@ -32,12 +32,13 @@ export interface ConstrainedVsockChannelOptions {
   guestCid: number;
   guestPort: number;
   maxMessageBytes?: number;
+  maxOutstandingRequests?: number;
   transport: VsockTransport;
   now?: () => number;
 }
 
 export class VsockChannelError extends Error {
-  constructor(readonly code: 'closed' | 'invalid_frame' | 'wrong_session' | 'method_not_allowed' | 'message_too_large' | 'timeout' | 'cancelled' | 'guest_error', message: string) {
+  constructor(readonly code: 'closed' | 'invalid_frame' | 'wrong_session' | 'method_not_allowed' | 'message_too_large' | 'timeout' | 'cancelled' | 'guest_error' | 'response_mismatch' | 'too_many_outstanding', message: string) {
     super(message);
     this.name = 'VsockChannelError';
   }
@@ -50,18 +51,21 @@ export class VsockChannelError extends Error {
  */
 export class ConstrainedVsockChannel {
   private readonly maxMessageBytes: number;
+  private readonly maxOutstandingRequests: number;
   private readonly now: () => number;
   private closed = false;
   private receiverStarted = false;
-  private readonly pending = new Map<string, { resolve: (value: unknown) => void; reject: (error: unknown) => void }>();
+  private readonly pending = new Map<string, { allowedResponseMethods: ReadonlySet<ConstrainedVsockMethod>; resolve: (value: unknown) => void; reject: (error: unknown) => void }>();
 
   constructor(private readonly options: ConstrainedVsockChannelOptions) {
     if (!options.sessionId.trim()) throw new TypeError('vsock sessionId is required');
     if (!Number.isSafeInteger(options.guestCid) || options.guestCid < 3) throw new TypeError('vsock guestCid is invalid');
     if (!Number.isSafeInteger(options.guestPort) || options.guestPort <= 0) throw new TypeError('vsock guestPort is invalid');
     this.maxMessageBytes = options.maxMessageBytes ?? 64 * 1024;
+    this.maxOutstandingRequests = options.maxOutstandingRequests ?? 64;
     this.now = options.now ?? Date.now;
     if (!Number.isSafeInteger(this.maxMessageBytes) || this.maxMessageBytes <= 0) throw new TypeError('vsock maxMessageBytes is invalid');
+    if (!Number.isSafeInteger(this.maxOutstandingRequests) || this.maxOutstandingRequests <= 0 || this.maxOutstandingRequests > 1024) throw new TypeError('vsock maxOutstandingRequests is invalid');
   }
 
   async send(method: Extract<ConstrainedVsockMethod, 'workload.start' | 'workload.cancel' | 'credential.deliver'>, payload: unknown, requestId = `vsock_${randomUUID()}`): Promise<string> {
@@ -82,6 +86,7 @@ export class ConstrainedVsockChannel {
   ): Promise<unknown> {
     if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) throw new TypeError('vsock timeoutMs is invalid');
     const requestId = `vsock_${randomUUID()}`;
+    if (this.pending.size >= this.maxOutstandingRequests) throw new VsockChannelError('too_many_outstanding', 'vsock outstanding request bound is exhausted');
     this.ensureReceiver();
     const response = new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -96,6 +101,7 @@ export class ConstrainedVsockChannel {
       if (signal?.aborted) return abort();
       signal?.addEventListener('abort', abort, { once: true });
       this.pending.set(requestId, {
+        allowedResponseMethods: responseMethodsFor(method),
         resolve: (value) => { clearTimeout(timer); signal?.removeEventListener('abort', abort); resolve(value); },
         reject: (error) => { clearTimeout(timer); signal?.removeEventListener('abort', abort); reject(error); },
       });
@@ -142,6 +148,10 @@ export class ConstrainedVsockChannel {
       const pending = this.pending.get(response.requestId);
       if (!pending) continue;
       this.pending.delete(response.requestId);
+      if (!pending.allowedResponseMethods.has(response.method)) {
+        pending.reject(new VsockChannelError('response_mismatch', `Response method ${response.method} is not valid for ${response.requestId}`));
+        continue;
+      }
       if (response.method === 'workload.error') pending.reject(new VsockChannelError('guest_error', 'guest workload reported an error'));
       else pending.resolve(response.payload);
     }
@@ -169,6 +179,11 @@ export class ConstrainedVsockChannel {
   }
 }
 
+function responseMethodsFor(method: Extract<ConstrainedVsockMethod, 'workload.start' | 'workload.cancel' | 'credential.deliver'>): ReadonlySet<ConstrainedVsockMethod> {
+  if (method === 'credential.deliver') return new Set(['credential.ack', 'workload.error']);
+  return new Set(['workload.result', 'workload.error']);
+}
+
 export interface GuestWorkloadStart {
   workloadId: string;
   arguments?: string[];
@@ -177,6 +192,27 @@ export interface GuestWorkloadStart {
 export interface GuestWorkloadControllerOptions {
   channel: ConstrainedVsockChannel;
   credentialLeases?: SecretLeaseManager;
+  credentialMode?: 'strict' | 'development';
+  credentialStrategy?: ProviderCredentialStrategy;
+}
+
+export interface ProviderCredentialStrategy {
+  readonly mode: 'HOST_PROXY' | 'SHORT_LIVED';
+  deliver(context: { leaseId: string; destination: string; service: string; account: string; scope: string[] }, channel: ConstrainedVsockChannel, timeoutMs?: number, signal?: AbortSignal): Promise<void>;
+}
+
+/** Bounded host-proxy hand-off: the guest receives only a capability reference. */
+export class HostProxyCredentialStrategy implements ProviderCredentialStrategy {
+  readonly mode = 'HOST_PROXY' as const;
+
+  async deliver(context: { leaseId: string; destination: string; service: string; account: string; scope: string[] }, channel: ConstrainedVsockChannel, timeoutMs?: number, signal?: AbortSignal): Promise<void> {
+    await channel.request('credential.deliver', {
+      leaseId: context.leaseId,
+      destination: context.destination,
+      mode: this.mode,
+      credentialRef: `host-proxy:${context.leaseId}`,
+    }, timeoutMs, signal);
+  }
 }
 
 /** Host-side workload lifecycle and scoped credential hand-off over the channel. */
@@ -200,9 +236,21 @@ export class GuestWorkloadController {
 
   async deliverCredential(leaseId: string, destination: string, timeoutMs?: number, signal?: AbortSignal): Promise<CredentialLease> {
     if (!this.options.credentialLeases) throw new VsockChannelError('method_not_allowed', 'credential delivery is not configured');
+    if ((this.options.credentialMode ?? 'strict') === 'strict') {
+      if (this.options.credentialLeases.credentialStore !== 'OS_BACKED') throw new VsockChannelError('method_not_allowed', 'strict credential delivery requires an OS-backed credential store');
+      const strategy = this.options.credentialStrategy;
+      if (!strategy) throw new VsockChannelError('method_not_allowed', 'raw long-lived credential delivery is disabled in strict mode');
+      const lease = this.options.credentialLeases.authorize(leaseId, destination);
+      await strategy.deliver(leaseContext(lease, destination), this.options.channel, timeoutMs, signal);
+      return lease;
+    }
     const lease = await this.options.credentialLeases.deliver(leaseId, destination, async (secret, context) => {
       await this.options.channel.request('credential.deliver', { leaseId: context.leaseId, destination: context.destination, secret }, timeoutMs, signal);
     });
     return lease;
   }
+}
+
+function leaseContext(lease: CredentialLease, destination: string) {
+  return { leaseId: lease.leaseId, destination, service: lease.service, account: lease.account, scope: [...lease.scope] };
 }

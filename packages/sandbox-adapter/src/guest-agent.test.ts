@@ -72,13 +72,13 @@ describe('GuestWorkloadAgent', () => {
   it('delivers one scoped credential into the guest sink and supports bounded process handlers', async () => {
     const [hostTransport, guestTransport] = link();
     let receivedSecret = '';
-    const agent = new GuestWorkloadAgent({ sessionId: 'session_guest_3', transport: guestTransport, workloads: new Map(), onCredential: ({ secret }) => { receivedSecret = secret; } });
+    const agent = new GuestWorkloadAgent({ sessionId: 'session_guest_3', transport: guestTransport, workloads: new Map(), credentialMode: 'development', onCredential: ({ secret }) => { receivedSecret = secret; } });
     const runningAgent = agent.run();
     const broker = new InMemorySecretBroker();
     await broker.set('provider', 'project', 'guest-secret');
     const leases = new SecretLeaseManager(broker, { now: () => '2026-08-24T14:00:00.000Z' });
     const lease = await leases.issue({ service: 'provider', account: 'project', scope: ['guest:session_guest_3'] });
-    const controller = new GuestWorkloadController({ channel: new ConstrainedVsockChannel({ sessionId: 'session_guest_3', guestCid: 42, guestPort: 7000, transport: hostTransport }), credentialLeases: leases });
+    const controller = new GuestWorkloadController({ channel: new ConstrainedVsockChannel({ sessionId: 'session_guest_3', guestCid: 42, guestPort: 7000, transport: hostTransport }), credentialLeases: leases, credentialMode: 'development' });
     await controller.deliverCredential(lease.leaseId, 'guest:session_guest_3');
     expect(receivedSecret).toBe('guest-secret');
     await expect(controller.deliverCredential(lease.leaseId, 'guest:session_guest_3')).rejects.toMatchObject({ code: 'consumed' });

@@ -1,15 +1,19 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { access, readFile, stat } from 'node:fs/promises';
+import { access, copyFile, mkdir, open, readFile, stat } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { arch } from 'node:os';
-import { isAbsolute, resolve } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 
 const SHA256 = /^[0-9a-f]{64}$/;
 const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const KVM_DEVICE = '/dev/kvm';
-const FIRECRACKER_SOCKET = '/run/fates/firecracker.socket';
-const FIRECRACKER_CONFIG = '/run/fates/firecracker-config.json';
+const JAILER_BASE_DIR = '/run/fates/jailer';
+const SESSION_BASE_DIR = '/run/fates/sessions';
+const JAIL_FIRECRACKER_SOCKET = '/firecracker.socket';
+const JAIL_FIRECRACKER_CONFIG = '/firecracker-config.json';
+const DEFAULT_JAILER_UID = 65532;
+const DEFAULT_JAILER_GID = 65532;
 
 export const FIRECRACKER_PROFILE_ID =
   'linux-x86_64-kvm-firecracker-no-nic-constrained-vsock-v1' as const;
@@ -33,6 +37,13 @@ export interface FirecrackerProfileManifest {
   hostVsockSocket: string;
   vcpuCount: number;
   memoryMiB: number;
+  jailerUid?: number;
+  jailerGid?: number;
+  guestExecutionBinding?: {
+    contractVersion: 'fates-guest-init-exec-pinned-v1';
+    workloadId: string;
+    evidenceCollectorId: string;
+  };
 }
 
 export interface FirecrackerPreflightCheck {
@@ -62,15 +73,18 @@ export interface FirecrackerLaunchSpec {
   firecrackerPath: string;
   jailerArgs: string[];
   firecrackerArgs: string[];
+  effectiveConfigJson: string;
+  effectiveConfigSha256: string;
+  stagedArtifactNames: readonly ['guestKernel', 'guestRootfs', 'workload', 'evidenceCollector'];
   config: {
     'boot-source': {
       kernel_image_path: string;
       boot_args: string;
     };
     drives: Array<{
-      drive_id: 'rootfs';
+      drive_id: 'rootfs' | 'workload' | 'evidence-collector';
       path_on_host: string;
-      is_root_device: true;
+      is_root_device: boolean;
       is_read_only: true;
     }>;
     'machine-config': {
@@ -85,6 +99,17 @@ export interface FirecrackerLaunchSpec {
   };
 }
 
+export interface FirecrackerStagedSession {
+  sessionRuntimeDir: string;
+  effectiveConfigPath: string;
+  effectiveConfigSha256: string;
+  stagedArtifactDigests: Record<'guestKernel' | 'guestRootfs' | 'workload' | 'evidenceCollector', string>;
+}
+
+export interface FirecrackerSessionStager {
+  stage(manifest: FirecrackerProfileManifest, spec: FirecrackerLaunchSpec): Promise<FirecrackerStagedSession>;
+}
+
 export interface FirecrackerProfileIo {
   platform?: () => NodeJS.Platform;
   architecture?: () => string;
@@ -97,6 +122,9 @@ export interface FirecrackerSession {
   readonly sessionId: string;
   readonly profileDigest: string;
   readonly pid: number;
+  readonly jailerPid: number;
+  readonly effectiveConfigSha256: string;
+  readonly stagedArtifactDigests: Record<'guestKernel' | 'guestRootfs' | 'workload' | 'evidenceCollector', string>;
   wait(): Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>;
   stop(reason?: string): Promise<void>;
 }
@@ -109,6 +137,7 @@ export interface FirecrackerSupervisorOptions {
   io?: FirecrackerProfileIo;
   spawnImpl?: FirecrackerSpawn;
   killGraceMs?: number;
+  stager?: FirecrackerSessionStager;
 }
 
 /**
@@ -207,6 +236,16 @@ export class FirecrackerProfileVerifier {
     if (!Number.isSafeInteger(manifest.memoryMiB) || manifest.memoryMiB < 128 || manifest.memoryMiB > 65_536) {
       return fail('memory', 'memory limit is outside the bounded profile');
     }
+    const jailerUid = manifest.jailerUid ?? DEFAULT_JAILER_UID;
+    const jailerGid = manifest.jailerGid ?? DEFAULT_JAILER_GID;
+    if (!Number.isSafeInteger(jailerUid) || jailerUid <= 0 || jailerUid === 1000 || !Number.isSafeInteger(jailerGid) || jailerGid <= 0 || jailerGid === 1000) {
+      return fail('jailer-identity', 'jailer must run as a dedicated non-interactive UID/GID');
+    }
+    if (!manifest.guestExecutionBinding) {
+      return fail('guest-execution-binding', 'pinned workload/evidence artifacts have no declared guest init execution binding');
+    }
+    checks.push({ name: 'jailer-identity', passed: true, detail: `${jailerUid}:${jailerGid}` });
+    checks.push({ name: 'guest-execution-binding', passed: true, detail: manifest.guestExecutionBinding.contractVersion });
     checks.push({ name: 'no-guest-nic', passed: true, detail: 'network interfaces are omitted from the VM configuration' });
     checks.push({ name: 'bounded-resources', passed: true, detail: `${manifest.vcpuCount} vCPU / ${manifest.memoryMiB} MiB` });
 
@@ -230,16 +269,27 @@ export function buildFirecrackerLaunchSpec(
   if (manifest.hostVsockSocket !== '/run/fates/vsock.sock') {
     throw new TypeError('profile does not use the fixed-purpose Fates vsock endpoint');
   }
+  if (!manifest.guestExecutionBinding) throw new TypeError('profile lacks a guest workload/evidence execution binding');
 
   const config = {
     'boot-source': {
-      kernel_image_path: manifest.guestKernel.path,
-      boot_args: 'console=ttyS0 reboot=k panic=1 pci=off',
+      kernel_image_path: '/kernel',
+      boot_args: `console=ttyS0 reboot=k panic=1 pci=off fates.execution_contract=${manifest.guestExecutionBinding.contractVersion} fates.workload=/workload fates.evidence_collector=/evidence-collector`,
     },
     drives: [{
       drive_id: 'rootfs' as const,
-      path_on_host: manifest.guestRootfs.path,
+      path_on_host: '/rootfs',
       is_root_device: true as const,
+      is_read_only: true as const,
+    }, {
+      drive_id: 'workload' as const,
+      path_on_host: '/workload',
+      is_root_device: false as const,
+      is_read_only: true as const,
+    }, {
+      drive_id: 'evidence-collector' as const,
+      path_on_host: '/evidence-collector',
+      is_root_device: false as const,
       is_read_only: true as const,
     }],
     'machine-config': {
@@ -252,23 +302,27 @@ export function buildFirecrackerLaunchSpec(
       uds_path: manifest.hostVsockSocket,
     },
   };
+  const effectiveConfigJson = canonicalJson(config);
   return {
     sessionId,
     profileDigest,
     jailerPath: manifest.jailer.path,
     firecrackerPath: manifest.firecracker.path,
+    effectiveConfigJson,
+    effectiveConfigSha256: createHash('sha256').update(effectiveConfigJson, 'utf8').digest('hex'),
+    stagedArtifactNames: ['guestKernel', 'guestRootfs', 'workload', 'evidenceCollector'],
     jailerArgs: [
       '--id', sessionId,
       '--exec-file', manifest.firecracker.path,
-      '--uid', '1000',
-      '--gid', '1000',
-      '--chroot-base-dir', '/run/fates/jailer',
+      '--uid', String(manifest.jailerUid ?? DEFAULT_JAILER_UID),
+      '--gid', String(manifest.jailerGid ?? DEFAULT_JAILER_GID),
+      '--chroot-base-dir', JAILER_BASE_DIR,
       '--',
-      '--api-sock', FIRECRACKER_SOCKET,
-      '--config-file', FIRECRACKER_CONFIG,
+      '--api-sock', JAIL_FIRECRACKER_SOCKET,
+      '--config-file', JAIL_FIRECRACKER_CONFIG,
       '--level', 'Warning',
     ],
-    firecrackerArgs: ['--api-sock', FIRECRACKER_SOCKET, '--config-file', FIRECRACKER_CONFIG, '--level', 'Warning'],
+    firecrackerArgs: ['--api-sock', JAIL_FIRECRACKER_SOCKET, '--config-file', JAIL_FIRECRACKER_CONFIG, '--level', 'Warning'],
     config,
   };
 }
@@ -282,11 +336,13 @@ export class FirecrackerSupervisor {
   private readonly verifier: FirecrackerProfileVerifier;
   private readonly spawnImpl: FirecrackerSpawn;
   private readonly killGraceMs: number;
+  private readonly stager: FirecrackerSessionStager;
 
   constructor(options: FirecrackerSupervisorOptions = {}) {
     this.verifier = new FirecrackerProfileVerifier(options.io);
     this.spawnImpl = options.spawnImpl ?? ((file, args, spawnOptions) => spawn(file, args, spawnOptions));
     this.killGraceMs = options.killGraceMs ?? 2_000;
+    this.stager = options.stager ?? new DefaultFirecrackerSessionStager();
     if (!Number.isSafeInteger(this.killGraceMs) || this.killGraceMs <= 0) {
       throw new TypeError('kill grace must be a positive safe integer');
     }
@@ -296,8 +352,16 @@ export class FirecrackerSupervisor {
     const preflight = await this.verifier.verify(manifest);
     if (!preflight.ok) throw new Error(`Firecracker preflight failed: ${preflight.reason}`);
     const spec = buildFirecrackerLaunchSpec(manifest, sessionId, preflight.profileDigest);
+    const staged = await this.stager.stage(manifest, spec);
+    if (staged.effectiveConfigSha256 !== spec.effectiveConfigSha256) throw new Error('Firecracker effective config digest mismatch before launch');
+    const exactConfig = await readFile(staged.effectiveConfigPath, 'utf8');
+    const exactConfigSha256 = createHash('sha256').update(exactConfig, 'utf8').digest('hex');
+    if (exactConfigSha256 !== spec.effectiveConfigSha256 || exactConfig !== spec.effectiveConfigJson) throw new Error('Firecracker effective config bytes changed before launch');
+    for (const name of spec.stagedArtifactNames) {
+      if (staged.stagedArtifactDigests[name] !== manifest[name].sha256) throw new Error(`Firecracker staged ${name} digest mismatch before launch`);
+    }
     const child = this.spawnImpl(spec.jailerPath, spec.jailerArgs, {
-      cwd: '/run/fates',
+      cwd: staged.sessionRuntimeDir,
       env: { PATH: '/usr/bin:/bin' },
       detached: false,
       shell: false,
@@ -330,9 +394,49 @@ export class FirecrackerSupervisor {
       sessionId,
       profileDigest: preflight.profileDigest,
       pid: child.pid,
+      jailerPid: child.pid,
+      effectiveConfigSha256: spec.effectiveConfigSha256,
+      stagedArtifactDigests: staged.stagedArtifactDigests,
       wait: () => waitPromise,
       stop,
     };
+  }
+}
+
+class DefaultFirecrackerSessionStager implements FirecrackerSessionStager {
+  async stage(manifest: FirecrackerProfileManifest, spec: FirecrackerLaunchSpec): Promise<FirecrackerStagedSession> {
+    const sessionRuntimeDir = join(SESSION_BASE_DIR, spec.sessionId);
+    const jailSessionDir = join(JAILER_BASE_DIR, spec.sessionId);
+    const jailRoot = join(jailSessionDir, 'root');
+    await mkdir(SESSION_BASE_DIR, { recursive: true, mode: 0o700 });
+    await mkdir(JAILER_BASE_DIR, { recursive: true, mode: 0o700 });
+    await mkdir(sessionRuntimeDir, { recursive: false, mode: 0o700 });
+    await mkdir(jailSessionDir, { recursive: false, mode: 0o700 });
+    await mkdir(jailRoot, { recursive: false, mode: 0o700 });
+    const artifacts = {
+      guestKernel: { source: manifest.guestKernel.path, target: join(jailRoot, 'kernel'), digest: manifest.guestKernel.sha256 },
+      guestRootfs: { source: manifest.guestRootfs.path, target: join(jailRoot, 'rootfs'), digest: manifest.guestRootfs.sha256 },
+      workload: { source: manifest.workload.path, target: join(jailRoot, 'workload'), digest: manifest.workload.sha256 },
+      evidenceCollector: { source: manifest.evidenceCollector.path, target: join(jailRoot, 'evidence-collector'), digest: manifest.evidenceCollector.sha256 },
+    } as const;
+    const stagedArtifactDigests = {} as FirecrackerStagedSession['stagedArtifactDigests'];
+    for (const [name, artifact] of Object.entries(artifacts) as Array<[keyof typeof artifacts, (typeof artifacts)[keyof typeof artifacts]]>) {
+      await copyFile(artifact.source, artifact.target);
+      const actual = await sha256File(artifact.target);
+      if (actual !== artifact.digest) throw new Error(`Firecracker staged ${name} digest mismatch`);
+      stagedArtifactDigests[name] = actual;
+    }
+    const effectiveConfigPath = join(jailRoot, 'firecracker-config.json');
+    const handle = await open(effectiveConfigPath, 'wx', 0o600);
+    try {
+      await handle.write(spec.effectiveConfigJson, 0, 'utf8');
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    const effectiveConfigSha256 = createHash('sha256').update(await readFile(effectiveConfigPath)).digest('hex');
+    if (effectiveConfigSha256 !== spec.effectiveConfigSha256) throw new Error('Firecracker staged config digest mismatch');
+    return { sessionRuntimeDir, effectiveConfigPath, effectiveConfigSha256, stagedArtifactDigests };
   }
 }
 

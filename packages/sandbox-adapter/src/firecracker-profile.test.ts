@@ -1,4 +1,8 @@
 import { EventEmitter } from 'node:events';
+import { createHash } from 'node:crypto';
+import { mkdtemp, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   FIRECRACKER_PROFILE_ID,
@@ -33,6 +37,7 @@ function manifest(): FirecrackerProfileManifest {
     hostVsockSocket: '/run/fates/vsock.sock',
     vcpuCount: 2,
     memoryMiB: 512,
+    guestExecutionBinding: { contractVersion: 'fates-guest-init-exec-pinned-v1', workloadId: 'workload.fixed', evidenceCollectorId: 'collector.fixed' },
   };
 }
 
@@ -107,6 +112,12 @@ describe('Firecracker launch supervision', () => {
       vsock: { guest_cid: 42, uds_path: '/run/fates/vsock.sock' },
     });
     expect(spec.config).not.toHaveProperty('network-interfaces');
+    expect(spec.config.drives).toEqual(expect.arrayContaining([
+      expect.objectContaining({ drive_id: 'workload', path_on_host: '/workload', is_read_only: true }),
+      expect.objectContaining({ drive_id: 'evidence-collector', path_on_host: '/evidence-collector', is_read_only: true }),
+    ]));
+    expect(createHash('sha256').update(spec.effectiveConfigJson, 'utf8').digest('hex')).toBe(spec.effectiveConfigSha256);
+    expect(JSON.parse(spec.effectiveConfigJson)).not.toHaveProperty('network-interfaces');
   });
 
   it('owns shutdown and escalates to SIGKILL when the VMM does not exit', async () => {
@@ -120,6 +131,24 @@ describe('Firecracker launch supervision', () => {
     const session = await new FirecrackerSupervisor({
       io: io(),
       killGraceMs: 1,
+      stager: {
+        stage: async (_manifest, spec) => {
+          const sessionRuntimeDir = await mkdtemp(join(tmpdir(), 'fates-firecracker-'));
+          const effectiveConfigPath = join(sessionRuntimeDir, 'firecracker-config.json');
+          await writeFile(effectiveConfigPath, spec.effectiveConfigJson, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+          return {
+            sessionRuntimeDir,
+            effectiveConfigPath,
+            effectiveConfigSha256: spec.effectiveConfigSha256,
+            stagedArtifactDigests: {
+              guestKernel: DIGESTS.guestKernel,
+              guestRootfs: DIGESTS.guestRootfs,
+              workload: DIGESTS.workload,
+              evidenceCollector: DIGESTS.evidenceCollector,
+            },
+          };
+        },
+      },
       spawnImpl: (_file, _args, _options) => {
         const process = child as unknown as import('node:child_process').ChildProcess;
         const originalKill = child.kill;
@@ -135,5 +164,30 @@ describe('Firecracker launch supervision', () => {
     await session.stop('test cleanup');
     expect(signals).toEqual(['SIGTERM', 'SIGKILL']);
     await expect(session.wait()).resolves.toEqual({ exitCode: null, signal: 'SIGKILL' });
+    expect(session.effectiveConfigSha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(session.jailerPid).toBe(session.pid);
+  });
+
+  it('refuses a malicious or ambient effective config before jailer spawn', async () => {
+    let spawned = false;
+    await expect(new FirecrackerSupervisor({
+      io: io(),
+      stager: {
+        stage: async (_manifest, spec) => {
+          const sessionRuntimeDir = await mkdtemp(join(tmpdir(), 'fates-firecracker-malicious-'));
+          const effectiveConfigPath = join(sessionRuntimeDir, 'firecracker-config.json');
+          const malicious = JSON.stringify({ ...JSON.parse(spec.effectiveConfigJson), 'network-interfaces': [{ iface_id: 'eth0' }] });
+          await writeFile(effectiveConfigPath, malicious, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+          return {
+            sessionRuntimeDir,
+            effectiveConfigPath,
+            effectiveConfigSha256: spec.effectiveConfigSha256,
+            stagedArtifactDigests: { guestKernel: DIGESTS.guestKernel, guestRootfs: DIGESTS.guestRootfs, workload: DIGESTS.workload, evidenceCollector: DIGESTS.evidenceCollector },
+          };
+        },
+      },
+      spawnImpl: () => { spawned = true; throw new Error('must not spawn'); },
+    }).start(manifest(), 'fates-session-malicious')).rejects.toThrow('effective config bytes changed');
+    expect(spawned).toBe(false);
   });
 });

@@ -50,6 +50,7 @@
     "node": ">=22.0.0"
   },
   "dependencies": {
+    "@napi-rs/keyring": "1.3.0",
     "project-runtime-contracts": "https://github.com/hourwise/Project-Adrasteia/releases/download/adrasteia-adoption-v0.4.0-protocol-1.4.0/project-runtime-contracts-0.4.0.tgz"
   }
 }

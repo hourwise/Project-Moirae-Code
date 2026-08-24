@@ -16,11 +16,20 @@ export interface GuestCredentialDelivery {
   secret: string;
 }
 
+export interface GuestCredentialReference {
+  leaseId: string;
+  destination: string;
+  mode: 'HOST_PROXY' | 'SHORT_LIVED';
+  credentialRef: string;
+}
+
 export interface GuestWorkloadAgentOptions {
   sessionId: string;
   transport: VsockTransport;
   workloads: ReadonlyMap<string, GuestWorkloadDefinition>;
   onCredential?: (delivery: GuestCredentialDelivery) => Promise<void> | void;
+  onCredentialReference?: (delivery: GuestCredentialReference) => Promise<void> | void;
+  credentialMode?: 'strict' | 'development';
   maxMessageBytes?: number;
   maxConcurrentWorkloads?: number;
 }
@@ -131,9 +140,26 @@ export class GuestWorkloadAgent {
     const payload = asRecord(envelope.payload);
     const leaseId = stringValue(payload['leaseId']);
     const destination = stringValue(payload['destination']);
-    const secret = stringValue(payload['secret']);
-    if (!this.options.onCredential || destination !== `guest:${this.options.sessionId}` || secret.length > 64 * 1024) {
+    if (destination !== `guest:${this.options.sessionId}`) {
       throw new GuestWorkloadAgentError('credential_rejected', 'guest credential destination is not accepted');
+    }
+    if ((this.options.credentialMode ?? 'strict') === 'strict') {
+      const mode = payload['mode'];
+      const credentialRef = payload['credentialRef'];
+      if ((mode !== 'HOST_PROXY' && mode !== 'SHORT_LIVED') || typeof credentialRef !== 'string' || credentialRef.length === 0 || credentialRef.length > 4096 || !this.options.onCredentialReference) {
+        throw new GuestWorkloadAgentError('credential_rejected', 'raw long-lived credentials are not accepted by the strict guest agent');
+      }
+      try {
+        await this.options.onCredentialReference({ leaseId, destination, mode, credentialRef });
+      } catch {
+        throw new GuestWorkloadAgentError('credential_rejected', 'guest credential reference sink rejected delivery');
+      }
+      await this.send({ version: '1', sessionId: this.options.sessionId, requestId: envelope.requestId, method: 'credential.ack', payload: { leaseId, accepted: true, mode } });
+      return;
+    }
+    const secret = stringValue(payload['secret']);
+    if (!this.options.onCredential || secret.length > 64 * 1024) {
+      throw new GuestWorkloadAgentError('credential_rejected', 'guest credential sink is not accepted');
     }
     try {
       await this.options.onCredential({ leaseId, destination, secret });
