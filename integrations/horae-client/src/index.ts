@@ -3,6 +3,54 @@ import { parseRuntimeInspection, type RuntimeInspection } from '@moirae/adrastei
 export interface HoraeInspectionClientConfig {
   inspect: () => Promise<unknown> | unknown;
 }
+
+/** Transport-neutral host envelope for the first real Moirae -> Horae route. */
+export interface MoiraeGovernedRequestEnvelope<TRequest = unknown> {
+  idempotencyKey: string;
+  sessionRequest: TRequest;
+  source: {
+    sourceId: string;
+    canonicalPath?: string;
+    sourceUri?: string;
+    sourceHash?: string;
+  };
+  content: unknown;
+  contentAccess: unknown;
+  memoryId: string;
+  origin: {
+    runtime: 'moirae-code';
+    instanceId: string;
+    artifact: string;
+  };
+}
+
+export function createMoiraeGovernedRequest<TRequest>(input: {
+  idempotencyKey: string;
+  sessionRequest: TRequest;
+  source: MoiraeGovernedRequestEnvelope<TRequest>['source'];
+  content: unknown;
+  contentAccess: unknown;
+  memoryId: string;
+  instanceId: string;
+  artifact: string;
+}): MoiraeGovernedRequestEnvelope<TRequest> {
+  if (!input.idempotencyKey.trim()) throw new TypeError('Moirae request idempotency key is required.');
+  if (!input.source.sourceId.trim()) throw new TypeError('Moirae request source is required.');
+  if (!input.memoryId.trim()) throw new TypeError('Moirae request memory target is required.');
+  return {
+    idempotencyKey: input.idempotencyKey,
+    sessionRequest: input.sessionRequest,
+    source: { ...input.source },
+    content: input.content,
+    contentAccess: input.contentAccess,
+    memoryId: input.memoryId,
+    origin: {
+      runtime: 'moirae-code',
+      instanceId: input.instanceId,
+      artifact: input.artifact,
+    },
+  };
+}
 export class HoraeSessionTransportUnavailable extends Error {
   constructor() {
     super(

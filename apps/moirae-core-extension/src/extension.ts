@@ -41,6 +41,23 @@ export function activate(context: vscode.ExtensionContext): void {
       vscode.window.registerTreeDataProvider(viewId, new StageAInspectionProvider(viewId)),
     );
   }
+  context.subscriptions.push(
+    vscode.commands.registerCommand('moirae.showGovernanceStatus', async () => {
+      const message = [
+        'Moirae Code · Fates governance surface',
+        'Current UI mode: inspection-only',
+        'Ananke authority, Mnemosyne memory, Horae orchestration, and Moirae sandbox execution are not bypassed by this view.',
+        'Use the Fates operator report for component readiness and the Linux/KVM acceptance suite for containment claims.',
+      ].join('\n');
+      await vscode.window.showInformationMessage(message, { modal: true });
+    }),
+  );
+  const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 10);
+  status.text = '$(shield) Moirae · inspect';
+  status.tooltip = 'Moirae Code governance status';
+  status.command = 'moirae.showGovernanceStatus';
+  status.show();
+  context.subscriptions.push(status);
 }
 
 export function deactivate(): void {}

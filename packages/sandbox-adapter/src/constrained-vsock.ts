@@ -52,6 +52,8 @@ export class ConstrainedVsockChannel {
   private readonly maxMessageBytes: number;
   private readonly now: () => number;
   private closed = false;
+  private receiverStarted = false;
+  private readonly pending = new Map<string, { resolve: (value: unknown) => void; reject: (error: unknown) => void }>();
 
   constructor(private readonly options: ConstrainedVsockChannelOptions) {
     if (!options.sessionId.trim()) throw new TypeError('vsock sessionId is required');
@@ -62,10 +64,10 @@ export class ConstrainedVsockChannel {
     if (!Number.isSafeInteger(this.maxMessageBytes) || this.maxMessageBytes <= 0) throw new TypeError('vsock maxMessageBytes is invalid');
   }
 
-  async send(method: Extract<ConstrainedVsockMethod, 'workload.start' | 'workload.cancel' | 'credential.deliver'>, payload: unknown): Promise<string> {
+  async send(method: Extract<ConstrainedVsockMethod, 'workload.start' | 'workload.cancel' | 'credential.deliver'>, payload: unknown, requestId = `vsock_${randomUUID()}`): Promise<string> {
     this.assertOpen();
     if (!OUTBOUND_METHODS.has(method)) throw new VsockChannelError('method_not_allowed', `Outbound vsock method is not allowed: ${method}`);
-    const envelope: VsockEnvelope = { version: '1', sessionId: this.options.sessionId, requestId: `vsock_${randomUUID()}`, method, payload };
+    const envelope: VsockEnvelope = { version: '1', sessionId: this.options.sessionId, requestId, method, payload };
     const frame = JSON.stringify(envelope);
     this.assertSize(frame);
     await this.options.transport.send(frame);
@@ -79,24 +81,70 @@ export class ConstrainedVsockChannel {
     signal?: AbortSignal,
   ): Promise<unknown> {
     if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) throw new TypeError('vsock timeoutMs is invalid');
-    const requestId = await this.send(method, payload);
-    const deadline = this.now() + timeoutMs;
-    while (true) {
-      if (signal?.aborted) throw new VsockChannelError('cancelled', 'vsock request was cancelled');
-      const remaining = deadline - this.now();
-      if (remaining <= 0) throw new VsockChannelError('timeout', 'vsock request timed out');
-      const frame = await withTimeout(this.options.transport.receive(signal), remaining);
-      const response = this.parseFrame(frame);
-      if (response.requestId !== requestId) throw new VsockChannelError('invalid_frame', 'vsock response requestId does not match the outstanding request');
-      if (response.method === 'workload.error') throw new VsockChannelError('guest_error', 'guest workload reported an error');
-      return response.payload;
+    const requestId = `vsock_${randomUUID()}`;
+    this.ensureReceiver();
+    const response = new Promise<unknown>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pending.delete(requestId);
+        reject(new VsockChannelError('timeout', 'vsock request timed out'));
+      }, timeoutMs);
+      const abort = () => {
+        clearTimeout(timer);
+        this.pending.delete(requestId);
+        reject(new VsockChannelError('cancelled', 'vsock request was cancelled'));
+      };
+      if (signal?.aborted) return abort();
+      signal?.addEventListener('abort', abort, { once: true });
+      this.pending.set(requestId, {
+        resolve: (value) => { clearTimeout(timer); signal?.removeEventListener('abort', abort); resolve(value); },
+        reject: (error) => { clearTimeout(timer); signal?.removeEventListener('abort', abort); reject(error); },
+      });
+    });
+    try {
+      await this.send(method, payload, requestId);
+    } catch (error) {
+      const pending = this.pending.get(requestId);
+      this.pending.delete(requestId);
+      pending?.reject(error);
+      throw error;
     }
+    return response;
   }
 
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
+    const error = new VsockChannelError('closed', 'vsock channel is closed');
+    for (const pending of this.pending.values()) pending.reject(error);
+    this.pending.clear();
     await this.options.transport.close();
+  }
+
+  private ensureReceiver(): void {
+    if (this.receiverStarted) return;
+    this.receiverStarted = true;
+    void this.receiveLoop();
+  }
+
+  private async receiveLoop(): Promise<void> {
+    while (!this.closed) {
+      let response: VsockEnvelope;
+      try {
+        response = this.parseFrame(await this.options.transport.receive());
+      } catch (error) {
+        if (this.closed) return;
+        this.closed = true;
+        for (const pending of this.pending.values()) pending.reject(error);
+        this.pending.clear();
+        await this.options.transport.close();
+        return;
+      }
+      const pending = this.pending.get(response.requestId);
+      if (!pending) continue;
+      this.pending.delete(response.requestId);
+      if (response.method === 'workload.error') pending.reject(new VsockChannelError('guest_error', 'guest workload reported an error'));
+      else pending.resolve(response.payload);
+    }
   }
 
   private parseFrame(frame: string): VsockEnvelope {
@@ -142,9 +190,12 @@ export class GuestWorkloadController {
     return this.options.channel.request('workload.start', { workloadId: request.workloadId, arguments: args }, timeoutMs, signal);
   }
 
-  async cancel(reason: string, timeoutMs?: number, signal?: AbortSignal): Promise<unknown> {
+  async cancel(reason: string, workloadIdOrTimeout?: string | number, timeoutMs?: number, signal?: AbortSignal): Promise<unknown> {
     if (!reason.trim() || reason.length > 256) throw new TypeError('guest cancellation reason is invalid');
-    return this.options.channel.request('workload.cancel', { reason }, timeoutMs, signal);
+    const workloadId = typeof workloadIdOrTimeout === 'string' ? workloadIdOrTimeout : undefined;
+    const effectiveTimeoutMs = typeof workloadIdOrTimeout === 'number' ? workloadIdOrTimeout : timeoutMs;
+    if (workloadId !== undefined && !WORKLOAD_ID.test(workloadId)) throw new TypeError('guest workloadId is invalid');
+    return this.options.channel.request('workload.cancel', { reason, workloadId }, effectiveTimeoutMs, signal);
   }
 
   async deliverCredential(leaseId: string, destination: string, timeoutMs?: number, signal?: AbortSignal): Promise<CredentialLease> {
@@ -153,17 +204,5 @@ export class GuestWorkloadController {
       await this.options.channel.request('credential.deliver', { leaseId: context.leaseId, destination: context.destination, secret }, timeoutMs, signal);
     });
     return lease;
-  }
-}
-
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<T>((_, reject) => { timer = setTimeout(() => reject(new VsockChannelError('timeout', 'vsock receive timed out')), timeoutMs); }),
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
   }
 }

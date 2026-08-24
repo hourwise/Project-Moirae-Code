@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Moirae Code">
+  <path fill="#101421" d="M0 0h128v128H0z"/>
+  <path fill="none" stroke="#8FE3CF" stroke-linecap="round" stroke-linejoin="round" stroke-width="9" d="M24 33c16-14 28 7 40 0s24-28 40-1M24 64c16-14 28 7 40 0s24-28 40-1M24 95c16-14 28 7 40 0s24-28 40-1"/>
+  <circle cx="24" cy="33" r="6" fill="#C8A7FF"/><circle cx="104" cy="95" r="6" fill="#F6C177"/>
+</svg>

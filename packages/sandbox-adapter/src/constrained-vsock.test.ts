@@ -5,6 +5,7 @@ import { ConstrainedVsockChannel, GuestWorkloadController, type VsockTransport }
 class FakeVsockTransport implements VsockTransport {
   readonly sent: string[] = [];
   private response: string | undefined;
+  private waiter: ((frame: string) => void) | undefined;
 
   async send(frame: string): Promise<void> {
     this.sent.push(frame);
@@ -14,13 +15,22 @@ class FakeVsockTransport implements VsockTransport {
       method: request.method === 'credential.deliver' ? 'credential.ack' : request.method === 'workload.cancel' ? 'workload.result' : 'workload.result',
       payload: request.method === 'credential.deliver' ? { accepted: true } : { state: 'completed' },
     });
+    if (this.waiter && this.response) {
+      const response = this.response;
+      this.response = undefined;
+      const waiter = this.waiter;
+      this.waiter = undefined;
+      waiter(response);
+    }
   }
 
   async receive(): Promise<string> {
-    if (!this.response) throw new Error('no response queued');
-    const response = this.response;
-    this.response = undefined;
-    return response;
+    if (this.response) {
+      const response = this.response;
+      this.response = undefined;
+      return response;
+    }
+    return new Promise((resolve) => { this.waiter = resolve; });
   }
 
   close(): void {}

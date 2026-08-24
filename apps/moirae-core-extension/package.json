@@ -2,6 +2,8 @@
   "name": "@moirae/core-extension",
   "version": "0.1.0",
   "private": true,
+  "displayName": "Moirae Code",
+  "publisher": "fates",
   "description": "Moirae Code VS Code extension — chat, approvals, memory explorer, audit timeline, runtime health",
   "license": "MIT",
   "main": "./dist/extension.js",
@@ -15,8 +17,8 @@
           "title": "Moirae Code",
           "icon": "media/moirae-icon.svg"
         }
-      ]
-    },
+    ]
+  },
     "views": {
       "moirae": [
         { "id": "moirae.thread", "name": "Thread" },
@@ -24,7 +26,21 @@
         { "id": "moirae.authority", "name": "Authority" },
         { "id": "moirae.runtime", "name": "Runtime" }
       ]
-    }
+    },
+    "themes": [
+      {
+        "label": "Moirae Night",
+        "uiTheme": "vs-dark",
+        "path": "./themes/moirae-dark-color-theme.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "moirae.showGovernanceStatus",
+        "title": "Moirae: Show Governance Status",
+        "category": "Moirae"
+      }
+    ]
   },
   "scripts": {
     "build": "tsc --build",
