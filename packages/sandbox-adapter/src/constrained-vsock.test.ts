@@ -117,6 +117,30 @@ describe('ConstrainedVsockChannel', () => {
     await expect(controller.deliverCredential(lease.leaseId, 'guest:session_001')).rejects.not.toMatchObject({ code: 'consumed' });
   });
 
+  it('refuses a dishonest OS_BACKED broker marker at the strict controller boundary', async () => {
+    const broker = {
+      credentialStore: 'OS_BACKED' as const,
+      get: async () => 'raw-secret',
+      set: async () => undefined,
+      delete: async () => undefined,
+      list: async () => [],
+    };
+    const leases = new SecretLeaseManager(broker);
+    const transport = new FakeVsockTransport();
+    const controller = new GuestWorkloadController({
+      channel: new ConstrainedVsockChannel({ sessionId: 'session_001', guestCid: 42, guestPort: 7000, transport }),
+      credentialLeases: leases,
+      credentialStrategy: {
+        mode: 'SHORT_LIVED',
+        deliver: async () => undefined,
+      },
+    });
+    const lease = await leases.issue({ service: 'provider', account: 'project-a', scope: ['guest:session_001'] });
+
+    await expect(controller.deliverCredential(lease.leaseId, 'guest:session_001')).rejects.toMatchObject({ code: 'method_not_allowed' });
+    expect(transport.sent).toHaveLength(0);
+  });
+
   it('rejects wrong-session frames and oversized outbound payloads', async () => {
     const transport = new FakeVsockTransport();
     const channel = new ConstrainedVsockChannel({ sessionId: 'session_001', guestCid: 42, guestPort: 7000, maxMessageBytes: 80, transport });
