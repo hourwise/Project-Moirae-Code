@@ -5,12 +5,16 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  FATES_005A_PROPOSAL_PROFILE_ID,
   FIRECRACKER_PROFILE_ID,
+  Fates005aProposalProfileVerifier,
   FirecrackerProfileVerifier,
   FirecrackerSupervisor,
   buildFirecrackerLaunchSpec,
+  buildFates005aProposalLaunchSpec,
   type FirecrackerProfileIo,
   type FirecrackerProfileManifest,
+  type Fates005aProposalProfileManifest,
 } from './firecracker-profile.js';
 
 const DIGESTS = {
@@ -20,6 +24,7 @@ const DIGESTS = {
   guestRootfs: 'd'.repeat(64),
   workload: 'e'.repeat(64),
   evidenceCollector: 'f'.repeat(64),
+  guestInitrd: '1'.repeat(64),
 } as const;
 
 function manifest(): FirecrackerProfileManifest {
@@ -42,6 +47,33 @@ function manifest(): FirecrackerProfileManifest {
   };
 }
 
+function proposalManifest(): Fates005aProposalProfileManifest {
+  return {
+    profileId: FATES_005A_PROPOSAL_PROFILE_ID,
+    firecracker: { path: '/opt/fates/firecracker', sha256: DIGESTS.firecracker },
+    jailer: { path: '/opt/fates/jailer', sha256: DIGESTS.jailer },
+    guestKernel: { path: '/opt/fates/guest-kernel', sha256: DIGESTS.guestKernel },
+    guestRootfs: { path: '/opt/fates/guest-rootfs.ext4', sha256: DIGESTS.guestRootfs },
+    guestInitrd: { path: '/opt/fates/guest-initrd.cpio', sha256: DIGESTS.guestInitrd },
+    sessionId: 'fates-005a-001',
+    kvmDevice: '/dev/kvm',
+    networkNamespacePath: '/run/netns/fates-005a-001',
+    guestCid: 42,
+    guestVsockPort: 7000,
+    hostVsockSocket: '/run/fates/vsock.sock',
+    vcpuCount: 1,
+    memoryMiB: 256,
+    guestProposal: {
+      requestId: 'req_fates_005a_001',
+      correlationId: 'cor_fates_005a_001',
+      sourceId: 'file:docs/fates-005c.md',
+      sourceHash: '2'.repeat(64),
+      memoryId: 'memory_fates_005c_001',
+      idempotencyKey: 'fates-005c-idempotency-001',
+    },
+  };
+}
+
 function io(overrides: Partial<FirecrackerProfileIo> = {}): FirecrackerProfileIo {
   return {
     platform: () => 'linux',
@@ -49,10 +81,9 @@ function io(overrides: Partial<FirecrackerProfileIo> = {}): FirecrackerProfileIo
     access: async () => undefined,
     stat: async () => ({ isFile: () => false, isCharacterDevice: () => true }),
     sha256: async (path) => {
-      const entry = Object.entries(manifest()).find(([, value]) => value && typeof value === 'object' && 'path' in value && value.path === path);
-      return entry && typeof entry[1] === 'object' && entry[1] !== null && 'sha256' in entry[1]
-        ? String(entry[1].sha256)
-        : '0'.repeat(64);
+      const entries = [...Object.entries(manifest()), ...Object.entries(proposalManifest())];
+      const entry = entries.find(([, value]) => value && typeof value === 'object' && 'path' in value && value.path === path);
+      return entry && typeof entry[1] === 'object' && entry[1] !== null && 'sha256' in entry[1] ? String(entry[1].sha256) : '0'.repeat(64);
     },
     ...overrides,
   };
@@ -97,6 +128,27 @@ describe('Firecracker profile verification', () => {
     endpoint.hostVsockSocket = '/run/fates/other.sock';
     const endpointResult = await new FirecrackerProfileVerifier(io()).verify(endpoint);
     expect(endpointResult).toMatchObject({ ok: false, reason: expect.stringContaining('fixed-purpose') });
+  });
+});
+
+describe('FATES-005A proposal-only profile', () => {
+  it('accepts the documented proposal-channel contract without workload or collector drives', async () => {
+    const result = await new Fates005aProposalProfileVerifier(io()).verify(proposalManifest());
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const spec = buildFates005aProposalLaunchSpec(proposalManifest(), result.profileDigest);
+    expect(spec.config.drives).toEqual([{ drive_id: 'rootfs', is_read_only: true, is_root_device: true, path_on_host: '/rootfs' }]);
+    expect(spec.config['boot-source'].boot_args).toContain('fates.execution_contract=fates-005a-proposal-channel-v1');
+    expect(spec.config['boot-source'].boot_args).not.toContain('fates.workload=');
+    expect(spec.config['boot-source'].boot_args).not.toContain('fates.evidence_collector=');
+    expect(spec.config).not.toHaveProperty('network-interfaces');
+  });
+
+  it('fails closed when a proposal profile tries to add a workload binding', async () => {
+    const candidate = proposalManifest() as Fates005aProposalProfileManifest & { workload?: unknown };
+    candidate.workload = { path: '/opt/fates/workload.squashfs', sha256: DIGESTS.workload };
+    const result = await new Fates005aProposalProfileVerifier(io()).verify(candidate);
+    expect(result).toMatchObject({ ok: false, reason: expect.stringContaining('cannot carry workload') });
   });
 });
 

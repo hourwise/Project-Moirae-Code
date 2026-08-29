@@ -1,5 +1,4 @@
 import { createServer, type Server, type Socket } from 'node:net';
-import { join } from 'node:path';
 import type { VsockTransport } from './constrained-vsock.js';
 
 const DEFAULT_MAX_FRAME_BYTES = 64 * 1024;
@@ -95,7 +94,9 @@ export interface FirecrackerVsockTransportOptions {
  */
 export function firecrackerVsockSocketPath(jailRootPath: string): string {
   if (!jailRootPath || jailRootPath.includes('..')) throw new TypeError('jailer root path is invalid');
-  return join(jailRootPath, FIXED_PURPOSE_SOCKET.replace(/^\/+/, ''));
+  // This is a Linux guest/jailer path even when the contract module is unit
+  // tested on Windows; node:path.join would emit backslashes there.
+  return `${jailRootPath.replace(/\/+$/, '')}${FIXED_PURPOSE_SOCKET}`;
 }
 
 /**

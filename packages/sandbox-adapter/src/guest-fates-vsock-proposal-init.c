@@ -118,6 +118,8 @@ int main(void) {
     for (size_t index = 0; index < sizeof(fields) / sizeof(fields[0]); index++) {
         if (read_cmdline_value(fields[index].key, fields[index].value, fields[index].size) != 0 || !valid_value(fields[index].value, fields[index].allow_slash)) return 10;
     }
+    char execution_contract[MAX_VALUE_BYTES + 1];
+    if (read_cmdline_value("fates.execution_contract", execution_contract, sizeof(execution_contract)) != 0 || strcmp(execution_contract, "fates-005a-proposal-channel-v1") != 0) return 12;
     char *end = NULL;
     unsigned long port = strtoul(port_text, &end, 10);
     if (*port_text == '\0' || *end != '\0' || port == 0 || port > 0xffffffffUL || strlen(source_hash) != 64) return 11;

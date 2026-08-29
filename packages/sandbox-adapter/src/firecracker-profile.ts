@@ -18,6 +18,15 @@ const DEFAULT_JAILER_GID = 65532;
 export const FIRECRACKER_PROFILE_ID =
   'linux-x86_64-kvm-firecracker-no-nic-constrained-vsock-v1' as const;
 
+/**
+ * FATES-005A is a proposal-channel containment acceptance.  It intentionally
+ * has a separate profile identity from the broader workload/evidence profile
+ * above; removing those drives from this profile must not weaken the broader
+ * contract.
+ */
+export const FATES_005A_PROPOSAL_PROFILE_ID =
+  'linux-x86_64-kvm-firecracker-no-nic-constrained-vsock-proposal-v1' as const;
+
 export interface PinnedArtifact {
   path: string;
   sha256: string;
@@ -56,6 +65,63 @@ export interface FirecrackerProfileManifest {
     sourceHash: string;
     memoryId: string;
     idempotencyKey: string;
+  };
+}
+
+export interface Fates005aProposalProfileManifest {
+  profileId: typeof FATES_005A_PROPOSAL_PROFILE_ID;
+  firecracker: PinnedArtifact;
+  jailer: PinnedArtifact;
+  guestKernel: PinnedArtifact;
+  guestRootfs: PinnedArtifact;
+  /** Fresh initrd containing only the fixed proposal-channel client. */
+  guestInitrd: PinnedArtifact;
+  sessionId: string;
+  kvmDevice?: string;
+  networkNamespacePath: string;
+  jailerChrootBaseDir?: string;
+  guestCid: number;
+  guestVsockPort: number;
+  hostVsockSocket: '/run/fates/vsock.sock';
+  vcpuCount: number;
+  memoryMiB: number;
+  jailerUid?: number;
+  jailerGid?: number;
+  guestProposal: {
+    requestId: string;
+    correlationId: string;
+    sourceId: string;
+    sourceHash: string;
+    memoryId: string;
+    idempotencyKey: string;
+  };
+}
+
+export interface Fates005aProposalLaunchSpec {
+  profileDigest: string;
+  effectiveConfigJson: string;
+  effectiveConfigSha256: string;
+  config: {
+    'boot-source': {
+      kernel_image_path: '/kernel';
+      initrd_path: '/guest-initrd';
+      boot_args: string;
+    };
+    drives: Array<{
+      drive_id: 'rootfs';
+      path_on_host: '/rootfs';
+      is_root_device: true;
+      is_read_only: true;
+    }>;
+    'machine-config': {
+      vcpu_count: number;
+      mem_size_mib: number;
+      smt: false;
+    };
+    vsock: {
+      guest_cid: number;
+      uds_path: '/run/fates/vsock.sock';
+    };
   };
 }
 
@@ -290,7 +356,132 @@ export class FirecrackerProfileVerifier {
   }
 }
 
-export function digestManifest(manifest: FirecrackerProfileManifest): string {
+/** Verifier for the narrower, proposal-only FATES-005A acceptance profile. */
+export class Fates005aProposalProfileVerifier {
+  private readonly io: Required<FirecrackerProfileIo>;
+
+  constructor(io: FirecrackerProfileIo = {}) {
+    this.io = {
+      platform: io.platform ?? (() => process.platform),
+      architecture: io.architecture ?? (() => arch()),
+      access: io.access ?? access,
+      stat: io.stat ?? stat,
+      sha256: io.sha256 ?? sha256File,
+    };
+  }
+
+  async verify(manifest: Fates005aProposalProfileManifest): Promise<FirecrackerPreflight> {
+    const checks: FirecrackerPreflightCheck[] = [];
+    const fail = (name: string, detail: string): FirecrackerPreflightFailed => {
+      checks.push({ name, passed: false, detail });
+      return { ok: false, reason: detail, checks };
+    };
+    if (manifest.profileId !== FATES_005A_PROPOSAL_PROFILE_ID) return fail('profile-id', 'unsupported FATES-005A proposal containment profile');
+    checks.push({ name: 'profile-id', passed: true, detail: FATES_005A_PROPOSAL_PROFILE_ID });
+    if (Object.hasOwn(manifest, 'workload') || Object.hasOwn(manifest, 'evidenceCollector') || Object.hasOwn(manifest, 'guestExecutionBinding')) return fail('profile-fields', 'proposal-only profile cannot carry workload, evidence-collector, or broad execution-binding fields');
+    if (this.io.platform() !== 'linux') return fail('platform', 'Firecracker containment requires Linux; no fallback is permitted');
+    checks.push({ name: 'platform', passed: true, detail: 'linux' });
+    if (this.io.architecture() !== 'x64') return fail('architecture', 'Firecracker containment requires x86_64; no fallback is permitted');
+    checks.push({ name: 'architecture', passed: true, detail: 'x86_64' });
+
+    const kvmPath = manifest.kvmDevice ?? KVM_DEVICE;
+    if (!isAbsolute(kvmPath)) return fail('kvm-path', 'KVM device path must be absolute');
+    try {
+      await this.io.access(kvmPath, fsConstants.R_OK | fsConstants.W_OK);
+      const kvm = await this.io.stat(kvmPath);
+      if (!kvm.isCharacterDevice()) return fail('kvm-device', `${kvmPath} is not a character device`);
+      checks.push({ name: 'kvm-device', passed: true, detail: kvmPath });
+    } catch {
+      return fail('kvm-device', `KVM device is unavailable or inaccessible: ${kvmPath}`);
+    }
+
+    const artifacts: Array<[string, PinnedArtifact]> = [
+      ['firecracker', manifest.firecracker],
+      ['jailer', manifest.jailer],
+      ['guest-kernel', manifest.guestKernel],
+      ['guest-rootfs', manifest.guestRootfs],
+      ['guest-initrd', manifest.guestInitrd],
+    ];
+    const seenPaths = new Set<string>();
+    for (const [name, artifact] of artifacts) {
+      if (!isAbsolute(artifact.path)) return fail(`${name}-path`, `${name} path must be absolute`);
+      const normalized = resolve(artifact.path);
+      if (seenPaths.has(normalized)) return fail(`${name}-path`, `${name} path is duplicated`);
+      seenPaths.add(normalized);
+      if (!SHA256.test(artifact.sha256)) return fail(`${name}-digest`, `${name} SHA-256 must be lowercase hex`);
+      if (/latest|placeholder|example|changeme/i.test(artifact.path)) return fail(`${name}-path`, `${name} path contains a mutable or placeholder reference`);
+      try {
+        const actual = await this.io.sha256(artifact.path);
+        if (actual !== artifact.sha256) return fail(`${name}-digest`, `${name} digest does not match the pinned artifact`);
+        checks.push({ name: `${name}-digest`, passed: true, detail: artifact.sha256 });
+      } catch {
+        return fail(`${name}-artifact`, `${name} artifact is unavailable: ${artifact.path}`);
+      }
+    }
+
+    if (!manifest.networkNamespacePath.startsWith('/run/netns/') || manifest.networkNamespacePath.includes('..')) return fail('network-namespace', 'a dedicated /run/netns namespace handle is required for Firecracker launch');
+    try {
+      await this.io.access(manifest.networkNamespacePath, fsConstants.R_OK);
+      checks.push({ name: 'network-namespace', passed: true, detail: manifest.networkNamespacePath });
+    } catch {
+      return fail('network-namespace', `network namespace handle is unavailable: ${manifest.networkNamespacePath}`);
+    }
+    if (manifest.guestCid !== 42 || manifest.guestVsockPort !== 7000) return fail('vsock', 'FATES-005A requires the fixed guest CID 42 and port 7000');
+    if (!/^fates-005a-\d{3}$/.test(manifest.sessionId)) return fail('session-id', 'FATES-005A requires the fixed attempt-derived session identity');
+    if (manifest.hostVsockSocket !== '/run/fates/vsock.sock') return fail('vsock-socket', 'FATES-005A requires the fixed-purpose Fates vsock endpoint');
+    if (manifest.vcpuCount !== 1 || manifest.memoryMiB !== 256) return fail('bounded-resources', 'FATES-005A requires the fixed 1 vCPU / 256 MiB profile');
+    const jailerUid = manifest.jailerUid ?? DEFAULT_JAILER_UID;
+    const jailerGid = manifest.jailerGid ?? DEFAULT_JAILER_GID;
+    if (jailerUid !== DEFAULT_JAILER_UID || jailerGid !== DEFAULT_JAILER_GID) return fail('jailer-identity', 'FATES-005A requires the dedicated non-interactive jailer identity');
+    if (!/^file:[A-Za-z0-9._/-]{1,240}$/.test(manifest.guestProposal.sourceId) || manifest.guestProposal.sourceId.includes('..') || !SHA256.test(manifest.guestProposal.sourceHash)) return fail('guest-proposal', 'FATES-005A guest proposal binding is malformed');
+    for (const name of ['requestId', 'correlationId', 'memoryId', 'idempotencyKey'] as const) {
+      if (!/^[A-Za-z0-9._:-]{1,256}$/.test(manifest.guestProposal[name]) || manifest.guestProposal[name].includes('..')) return fail('guest-proposal', `FATES-005A guest proposal ${name} is malformed`);
+    }
+    checks.push({ name: 'no-guest-nic', passed: true, detail: 'network interfaces are omitted from the VM configuration' });
+    checks.push({ name: 'guest-execution-contract', passed: true, detail: 'fates-005a-proposal-channel-v1' });
+    checks.push({ name: 'guest-workload-drives', passed: true, detail: 'not part of the documented 005A proposal-channel contract' });
+    const profileDigest = digestManifest(manifest);
+    checks.push({ name: 'profile-digest', passed: true, detail: profileDigest });
+    return { ok: true, profileDigest, checks };
+  }
+}
+
+export function buildFates005aProposalLaunchSpec(
+  manifest: Fates005aProposalProfileManifest,
+  profileDigest: string,
+): Fates005aProposalLaunchSpec {
+  if (manifest.profileId !== FATES_005A_PROPOSAL_PROFILE_ID) throw new TypeError('unsupported FATES-005A proposal profile');
+  if (!SHA256.test(profileDigest)) throw new TypeError('profile digest is malformed');
+  const proposal = manifest.guestProposal;
+  const config = {
+    'boot-source': {
+      boot_args: [
+        'console=ttyS0',
+        'reboot=k',
+        'panic=1',
+        'pci=off',
+        'fates.execution_contract=fates-005a-proposal-channel-v1',
+        `fates.session=${manifest.sessionId}`,
+        `fates.vsock_port=${manifest.guestVsockPort}`,
+        `fates.request_id=${proposal.requestId}`,
+        `fates.correlation_id=${proposal.correlationId}`,
+        `fates.source_id=${proposal.sourceId}`,
+        `fates.source_hash=${proposal.sourceHash}`,
+        `fates.memory_id=${proposal.memoryId}`,
+        `fates.idempotency_key=${proposal.idempotencyKey}`,
+      ].join(' '),
+      initrd_path: '/guest-initrd' as const,
+      kernel_image_path: '/kernel' as const,
+    },
+    drives: [{ drive_id: 'rootfs' as const, is_read_only: true as const, is_root_device: true as const, path_on_host: '/rootfs' as const }],
+    'machine-config': { mem_size_mib: manifest.memoryMiB, smt: false as const, vcpu_count: manifest.vcpuCount },
+    vsock: { guest_cid: manifest.guestCid, uds_path: '/run/fates/vsock.sock' as const },
+  };
+  const effectiveConfigJson = canonicalJson(config);
+  return { profileDigest, effectiveConfigJson, effectiveConfigSha256: createHash('sha256').update(effectiveConfigJson, 'utf8').digest('hex'), config };
+}
+
+export function digestManifest(manifest: object): string {
   return createHash('sha256').update(canonicalJson(manifest)).digest('hex');
 }
 
