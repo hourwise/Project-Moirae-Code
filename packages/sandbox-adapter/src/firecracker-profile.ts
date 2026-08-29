@@ -3,12 +3,12 @@ import { access, copyFile, mkdir, open, readFile, stat } from 'node:fs/promises'
 import { constants as fsConstants } from 'node:fs';
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { arch } from 'node:os';
-import { isAbsolute, join, resolve } from 'node:path';
+import { basename, isAbsolute, join, resolve } from 'node:path';
 
 const SHA256 = /^[0-9a-f]{64}$/;
 const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const KVM_DEVICE = '/dev/kvm';
-const JAILER_BASE_DIR = '/run/fates/jailer';
+const JAILER_BASE_DIR = '/srv/jailer';
 const SESSION_BASE_DIR = '/run/fates/sessions';
 const JAIL_FIRECRACKER_SOCKET = '/firecracker.socket';
 const JAIL_FIRECRACKER_CONFIG = '/firecracker-config.json';
@@ -31,7 +31,12 @@ export interface FirecrackerProfileManifest {
   guestRootfs: PinnedArtifact;
   workload: PinnedArtifact;
   evidenceCollector: PinnedArtifact;
+  /** A fresh initrd containing the guest-side fixed-purpose proposal agent. */
+  guestInitrd?: PinnedArtifact;
   kvmDevice?: string;
+  /** A pre-created, empty network namespace handle passed to jailer --netns. */
+  networkNamespacePath?: string;
+  jailerChrootBaseDir?: string;
   guestCid: number;
   guestVsockPort: number;
   hostVsockSocket: string;
@@ -43,6 +48,14 @@ export interface FirecrackerProfileManifest {
     contractVersion: 'fates-guest-init-exec-pinned-v1';
     workloadId: string;
     evidenceCollectorId: string;
+  };
+  guestProposal?: {
+    requestId: string;
+    correlationId: string;
+    sourceId: string;
+    sourceHash: string;
+    memoryId: string;
+    idempotencyKey: string;
   };
 }
 
@@ -75,10 +88,11 @@ export interface FirecrackerLaunchSpec {
   firecrackerArgs: string[];
   effectiveConfigJson: string;
   effectiveConfigSha256: string;
-  stagedArtifactNames: readonly ['guestKernel', 'guestRootfs', 'workload', 'evidenceCollector'];
+  stagedArtifactNames: readonly ('guestKernel' | 'guestRootfs' | 'workload' | 'evidenceCollector' | 'guestInitrd')[];
   config: {
     'boot-source': {
       kernel_image_path: string;
+      initrd_path?: string;
       boot_args: string;
     };
     drives: Array<{
@@ -103,7 +117,10 @@ export interface FirecrackerStagedSession {
   sessionRuntimeDir: string;
   effectiveConfigPath: string;
   effectiveConfigSha256: string;
-  stagedArtifactDigests: Record<'guestKernel' | 'guestRootfs' | 'workload' | 'evidenceCollector', string>;
+  stagedArtifactDigests: Partial<Record<'guestKernel' | 'guestRootfs' | 'workload' | 'evidenceCollector' | 'guestInitrd', string>> & Record<'guestKernel' | 'guestRootfs' | 'workload' | 'evidenceCollector', string>;
+  jailRootPath: string;
+  hostVsockSocketPath: string;
+  guestVsockSocketPath: string;
 }
 
 export interface FirecrackerSessionStager {
@@ -124,7 +141,13 @@ export interface FirecrackerSession {
   readonly pid: number;
   readonly jailerPid: number;
   readonly effectiveConfigSha256: string;
-  readonly stagedArtifactDigests: Record<'guestKernel' | 'guestRootfs' | 'workload' | 'evidenceCollector', string>;
+  readonly stagedArtifactDigests: FirecrackerStagedSession['stagedArtifactDigests'];
+  readonly jailRootPath: string;
+  /** Actual host-visible UDS path backing the guest AF_VSOCK endpoint. */
+  readonly hostVsockSocketPath: string;
+  /** Actual host listener path used when the guest initiates on guestVsockPort. */
+  readonly guestVsockSocketPath: string;
+  readonly networkNamespacePath: string;
   wait(): Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>;
   stop(reason?: string): Promise<void>;
 }
@@ -191,14 +214,15 @@ export class FirecrackerProfileVerifier {
       return fail('kvm-device', `KVM device is unavailable or inaccessible: ${kvmPath}`);
     }
 
-    const artifacts = [
+    const artifacts: Array<[string, PinnedArtifact]> = [
       ['firecracker', manifest.firecracker],
       ['jailer', manifest.jailer],
       ['guest-kernel', manifest.guestKernel],
       ['guest-rootfs', manifest.guestRootfs],
       ['workload', manifest.workload],
       ['evidence-collector', manifest.evidenceCollector],
-    ] as const;
+    ];
+    if (manifest.guestInitrd) artifacts.push(['guest-initrd', manifest.guestInitrd]);
     const seenPaths = new Set<string>();
     for (const [name, artifact] of artifacts) {
       if (!isAbsolute(artifact.path)) return fail(`${name}-path`, `${name} path must be absolute`);
@@ -216,6 +240,17 @@ export class FirecrackerProfileVerifier {
       } catch {
         return fail(`${name}-artifact`, `${name} artifact is unavailable: ${artifact.path}`);
       }
+    }
+
+    const networkNamespacePath = manifest.networkNamespacePath;
+    if (!networkNamespacePath || !isAbsolute(networkNamespacePath) || networkNamespacePath.includes('..') || !networkNamespacePath.startsWith('/run/netns/')) {
+      return fail('network-namespace', 'a dedicated /run/netns namespace handle is required for Firecracker launch');
+    }
+    try {
+      await this.io.access(networkNamespacePath, fsConstants.R_OK);
+      checks.push({ name: 'network-namespace', passed: true, detail: networkNamespacePath });
+    } catch {
+      return fail('network-namespace', `network namespace handle is unavailable: ${networkNamespacePath}`);
     }
 
     if (!Number.isSafeInteger(manifest.guestCid) || manifest.guestCid < 3 || manifest.guestCid > 2 ** 32 - 1) {
@@ -270,11 +305,50 @@ export function buildFirecrackerLaunchSpec(
     throw new TypeError('profile does not use the fixed-purpose Fates vsock endpoint');
   }
   if (!manifest.guestExecutionBinding) throw new TypeError('profile lacks a guest workload/evidence execution binding');
+  if (!manifest.networkNamespacePath || !manifest.networkNamespacePath.startsWith('/run/netns/') || manifest.networkNamespacePath.includes('..')) {
+    throw new TypeError('profile lacks a dedicated network namespace handle');
+  }
+  const guestInitrd = manifest.guestInitrd;
+  if (Boolean(guestInitrd) !== Boolean(manifest.guestProposal)) {
+    throw new TypeError('guest initrd and guest proposal binding must be supplied together');
+  }
+  if (manifest.guestProposal) {
+    const allowedGuestProposalFields = new Set(['requestId', 'correlationId', 'sourceId', 'sourceHash', 'memoryId', 'idempotencyKey']);
+    if (Object.keys(manifest.guestProposal).some((name) => !allowedGuestProposalFields.has(name)) || Object.keys(manifest.guestProposal).length !== allowedGuestProposalFields.size) {
+      throw new TypeError('guest proposal contains unsupported fields');
+    }
+    for (const [name, value] of Object.entries(manifest.guestProposal)) {
+      const valid = name === 'sourceId'
+        ? typeof value === 'string' && /^file:[A-Za-z0-9._/-]{1,240}$/.test(value) && !value.includes('..')
+        : typeof value === 'string' && /^[A-Za-z0-9._:-]{1,256}$/.test(value);
+      if (!valid) throw new TypeError(`guest proposal ${name} is malformed`);
+    }
+    if (!SHA256.test(manifest.guestProposal.sourceHash)) throw new TypeError('guest proposal source hash is malformed');
+  }
 
   const config = {
     'boot-source': {
       kernel_image_path: '/kernel',
-      boot_args: `console=ttyS0 reboot=k panic=1 pci=off fates.execution_contract=${manifest.guestExecutionBinding.contractVersion} fates.workload=/workload fates.evidence_collector=/evidence-collector`,
+      ...(guestInitrd ? { initrd_path: '/guest-initrd' } : {}),
+      boot_args: [
+        'console=ttyS0',
+        'reboot=k',
+        'panic=1',
+        'pci=off',
+        `fates.execution_contract=${manifest.guestExecutionBinding.contractVersion}`,
+        'fates.workload=/workload',
+        'fates.evidence_collector=/evidence-collector',
+        ...(manifest.guestProposal ? [
+          `fates.vsock_port=${manifest.guestVsockPort}`,
+          `fates.session=${sessionId}`,
+          `fates.request_id=${manifest.guestProposal.requestId}`,
+          `fates.correlation_id=${manifest.guestProposal.correlationId}`,
+          `fates.source_id=${manifest.guestProposal.sourceId}`,
+          `fates.source_hash=${manifest.guestProposal.sourceHash}`,
+          `fates.memory_id=${manifest.guestProposal.memoryId}`,
+          `fates.idempotency_key=${manifest.guestProposal.idempotencyKey}`,
+        ] : []),
+      ].join(' '),
     },
     drives: [{
       drive_id: 'rootfs' as const,
@@ -310,13 +384,22 @@ export function buildFirecrackerLaunchSpec(
     firecrackerPath: manifest.firecracker.path,
     effectiveConfigJson,
     effectiveConfigSha256: createHash('sha256').update(effectiveConfigJson, 'utf8').digest('hex'),
-    stagedArtifactNames: ['guestKernel', 'guestRootfs', 'workload', 'evidenceCollector'],
+    stagedArtifactNames: [
+      'guestKernel',
+      'guestRootfs',
+      'workload',
+      'evidenceCollector',
+      ...(guestInitrd ? ['guestInitrd' as const] : []),
+    ],
     jailerArgs: [
       '--id', sessionId,
       '--exec-file', manifest.firecracker.path,
       '--uid', String(manifest.jailerUid ?? DEFAULT_JAILER_UID),
       '--gid', String(manifest.jailerGid ?? DEFAULT_JAILER_GID),
-      '--chroot-base-dir', JAILER_BASE_DIR,
+      '--chroot-base-dir', manifest.jailerChrootBaseDir ?? JAILER_BASE_DIR,
+      '--netns', manifest.networkNamespacePath,
+      '--new-pid-ns',
+      '--resource-limit', 'no-file=1024',
       '--',
       '--api-sock', JAIL_FIRECRACKER_SOCKET,
       '--config-file', JAIL_FIRECRACKER_CONFIG,
@@ -358,7 +441,8 @@ export class FirecrackerSupervisor {
     const exactConfigSha256 = createHash('sha256').update(exactConfig, 'utf8').digest('hex');
     if (exactConfigSha256 !== spec.effectiveConfigSha256 || exactConfig !== spec.effectiveConfigJson) throw new Error('Firecracker effective config bytes changed before launch');
     for (const name of spec.stagedArtifactNames) {
-      if (staged.stagedArtifactDigests[name] !== manifest[name].sha256) throw new Error(`Firecracker staged ${name} digest mismatch before launch`);
+      const expectedArtifact = name === 'guestInitrd' ? manifest.guestInitrd : manifest[name];
+      if (!expectedArtifact || staged.stagedArtifactDigests[name] !== expectedArtifact.sha256) throw new Error(`Firecracker staged ${name} digest mismatch before launch`);
     }
     const child = this.spawnImpl(spec.jailerPath, spec.jailerArgs, {
       cwd: staged.sessionRuntimeDir,
@@ -397,6 +481,10 @@ export class FirecrackerSupervisor {
       jailerPid: child.pid,
       effectiveConfigSha256: spec.effectiveConfigSha256,
       stagedArtifactDigests: staged.stagedArtifactDigests,
+      jailRootPath: staged.jailRootPath,
+      hostVsockSocketPath: staged.hostVsockSocketPath,
+      guestVsockSocketPath: staged.guestVsockSocketPath,
+      networkNamespacePath: manifest.networkNamespacePath!,
       wait: () => waitPromise,
       stop,
     };
@@ -406,21 +494,25 @@ export class FirecrackerSupervisor {
 class DefaultFirecrackerSessionStager implements FirecrackerSessionStager {
   async stage(manifest: FirecrackerProfileManifest, spec: FirecrackerLaunchSpec): Promise<FirecrackerStagedSession> {
     const sessionRuntimeDir = join(SESSION_BASE_DIR, spec.sessionId);
-    const jailSessionDir = join(JAILER_BASE_DIR, spec.sessionId);
+    const jailerBaseDir = manifest.jailerChrootBaseDir ?? JAILER_BASE_DIR;
+    const jailSessionDir = join(jailerBaseDir, basename(spec.firecrackerPath), spec.sessionId);
     const jailRoot = join(jailSessionDir, 'root');
     await mkdir(SESSION_BASE_DIR, { recursive: true, mode: 0o700 });
-    await mkdir(JAILER_BASE_DIR, { recursive: true, mode: 0o700 });
+    await mkdir(jailerBaseDir, { recursive: true, mode: 0o700 });
     await mkdir(sessionRuntimeDir, { recursive: false, mode: 0o700 });
-    await mkdir(jailSessionDir, { recursive: false, mode: 0o700 });
-    await mkdir(jailRoot, { recursive: false, mode: 0o700 });
+    await mkdir(jailSessionDir, { recursive: true, mode: 0o700 });
+    await mkdir(jailRoot, { recursive: true, mode: 0o700 });
+    await mkdir(join(jailRoot, 'run', 'fates'), { recursive: true, mode: 0o755 });
     const artifacts = {
       guestKernel: { source: manifest.guestKernel.path, target: join(jailRoot, 'kernel'), digest: manifest.guestKernel.sha256 },
       guestRootfs: { source: manifest.guestRootfs.path, target: join(jailRoot, 'rootfs'), digest: manifest.guestRootfs.sha256 },
       workload: { source: manifest.workload.path, target: join(jailRoot, 'workload'), digest: manifest.workload.sha256 },
       evidenceCollector: { source: manifest.evidenceCollector.path, target: join(jailRoot, 'evidence-collector'), digest: manifest.evidenceCollector.sha256 },
+      ...(manifest.guestInitrd ? { guestInitrd: { source: manifest.guestInitrd.path, target: join(jailRoot, 'guest-initrd'), digest: manifest.guestInitrd.sha256 } } : {}),
     } as const;
     const stagedArtifactDigests = {} as FirecrackerStagedSession['stagedArtifactDigests'];
     for (const [name, artifact] of Object.entries(artifacts) as Array<[keyof typeof artifacts, (typeof artifacts)[keyof typeof artifacts]]>) {
+      if (!artifact) throw new Error(`Firecracker staged ${name} artifact is missing`);
       await copyFile(artifact.source, artifact.target);
       const actual = await sha256File(artifact.target);
       if (actual !== artifact.digest) throw new Error(`Firecracker staged ${name} digest mismatch`);
@@ -436,7 +528,9 @@ class DefaultFirecrackerSessionStager implements FirecrackerSessionStager {
     }
     const effectiveConfigSha256 = createHash('sha256').update(await readFile(effectiveConfigPath)).digest('hex');
     if (effectiveConfigSha256 !== spec.effectiveConfigSha256) throw new Error('Firecracker staged config digest mismatch');
-    return { sessionRuntimeDir, effectiveConfigPath, effectiveConfigSha256, stagedArtifactDigests };
+    const hostVsockSocketPath = join(jailRoot, manifest.hostVsockSocket.replace(/^\/+/, ''));
+    const guestVsockSocketPath = `${hostVsockSocketPath}_${manifest.guestVsockPort}`;
+    return { sessionRuntimeDir, effectiveConfigPath, effectiveConfigSha256, stagedArtifactDigests, jailRootPath: jailRoot, hostVsockSocketPath, guestVsockSocketPath };
   }
 }
 

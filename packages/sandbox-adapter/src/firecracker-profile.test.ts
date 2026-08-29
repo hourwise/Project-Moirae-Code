@@ -32,6 +32,7 @@ function manifest(): FirecrackerProfileManifest {
     workload: { path: '/opt/fates/workload.squashfs', sha256: DIGESTS.workload },
     evidenceCollector: { path: '/opt/fates/evidence-collector', sha256: DIGESTS.evidenceCollector },
     kvmDevice: '/dev/kvm',
+    networkNamespacePath: '/run/netns/fates-test',
     guestCid: 42,
     guestVsockPort: 7000,
     hostVsockSocket: '/run/fates/vsock.sock',
@@ -106,7 +107,7 @@ describe('Firecracker launch supervision', () => {
     const spec = buildFirecrackerLaunchSpec(manifest(), 'fates-session-1', checked.profileDigest);
 
     expect(spec.jailerArgs).toEqual(expect.arrayContaining(['--exec-file', '/opt/fates/firecracker', '--', '--config-file']));
-    expect(spec.jailerArgs.join(' ')).not.toContain('--net');
+    expect(spec.jailerArgs).toEqual(expect.arrayContaining(['--netns', '/run/netns/fates-test']));
     expect(spec.config).toMatchObject({
       'machine-config': { vcpu_count: 2, mem_size_mib: 512, smt: false },
       vsock: { guest_cid: 42, uds_path: '/run/fates/vsock.sock' },
@@ -146,6 +147,9 @@ describe('Firecracker launch supervision', () => {
               workload: DIGESTS.workload,
               evidenceCollector: DIGESTS.evidenceCollector,
             },
+            jailRootPath: sessionRuntimeDir,
+            hostVsockSocketPath: '/run/fates/vsock.sock',
+            guestVsockSocketPath: '/run/fates/vsock.sock_7000',
           };
         },
       },
@@ -183,6 +187,9 @@ describe('Firecracker launch supervision', () => {
             effectiveConfigPath,
             effectiveConfigSha256: spec.effectiveConfigSha256,
             stagedArtifactDigests: { guestKernel: DIGESTS.guestKernel, guestRootfs: DIGESTS.guestRootfs, workload: DIGESTS.workload, evidenceCollector: DIGESTS.evidenceCollector },
+            jailRootPath: sessionRuntimeDir,
+            hostVsockSocketPath: '/run/fates/vsock.sock',
+            guestVsockSocketPath: '/run/fates/vsock.sock_7000',
           };
         },
       },
