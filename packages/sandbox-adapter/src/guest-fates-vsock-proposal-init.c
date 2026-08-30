@@ -161,17 +161,23 @@ int main(void) {
         {"fates.vsock_port", port_text, sizeof(port_text), 0},
     };
     for (size_t index = 0; index < sizeof(fields) / sizeof(fields[0]); index++) {
-        if (read_cmdline_value(fields[index].key, fields[index].value, fields[index].size) != 0 || !valid_value(fields[index].value, fields[index].allow_slash)) {
-            if (errno == 0) errno = EINVAL;
+        if (read_cmdline_value(fields[index].key, fields[index].value, fields[index].size) != 0) {
             diagnostic_stage_errno("CMDLINE_FAILED", errno);
+            return 10;
+        }
+        if (!valid_value(fields[index].value, fields[index].allow_slash)) {
+            diagnostic_stage_errno("CMDLINE_FAILED", EINVAL);
             return 10;
         }
     }
     diagnostic_stage("CMDLINE_PARSED");
     char execution_contract[MAX_VALUE_BYTES + 1];
-    if (read_cmdline_value("fates.execution_contract", execution_contract, sizeof(execution_contract)) != 0 || strcmp(execution_contract, "fates-005a-proposal-channel-v1") != 0) {
-        if (errno == 0) errno = EINVAL;
+    if (read_cmdline_value("fates.execution_contract", execution_contract, sizeof(execution_contract)) != 0) {
         diagnostic_stage_errno("EXECUTION_CONTRACT_FAILED", errno);
+        return 12;
+    }
+    if (strcmp(execution_contract, "fates-005a-proposal-channel-v1") != 0) {
+        diagnostic_stage_errno("EXECUTION_CONTRACT_FAILED", EINVAL);
         return 12;
     }
     diagnostic_stage("EXECUTION_CONTRACT_VALID");
