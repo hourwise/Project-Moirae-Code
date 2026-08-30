@@ -12,6 +12,7 @@ import {
   FirecrackerSupervisor,
   buildFirecrackerLaunchSpec,
   buildFates005aProposalLaunchSpec,
+  validateFates005aGuestKernelCapabilities,
   type FirecrackerProfileIo,
   type FirecrackerProfileManifest,
   type Fates005aProposalProfileManifest,
@@ -53,6 +54,21 @@ function proposalManifest(): Fates005aProposalProfileManifest {
     firecracker: { path: '/opt/fates/firecracker', sha256: DIGESTS.firecracker },
     jailer: { path: '/opt/fates/jailer', sha256: DIGESTS.jailer },
     guestKernel: { path: '/opt/fates/guest-kernel', sha256: DIGESTS.guestKernel },
+    guestKernelCapabilities: {
+      kernelSha256: DIGESTS.guestKernel,
+      configSha256: '9'.repeat(64),
+      symbols: {
+        CONFIG_VSOCKETS: 'y',
+        CONFIG_VIRTIO_VSOCKETS: 'y',
+        CONFIG_VIRTIO: 'y',
+        CONFIG_VIRTIO_MMIO: 'y',
+        CONFIG_VIRTIO_MMIO_CMDLINE_DEVICES: 'y',
+        CONFIG_BLK_DEV_INITRD: 'y',
+        CONFIG_KVM_GUEST: 'y',
+        CONFIG_SERIAL_8250_CONSOLE: 'y',
+        CONFIG_PRINTK: 'y',
+      },
+    },
     guestRootfs: { path: '/opt/fates/guest-rootfs.ext4', sha256: DIGESTS.guestRootfs },
     guestInitrd: { path: '/opt/fates/guest-initrd.cpio', sha256: DIGESTS.guestInitrd },
     sessionId: 'fates-005a-001',
@@ -137,6 +153,7 @@ describe('FATES-005A proposal-only profile', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const spec = buildFates005aProposalLaunchSpec(proposalManifest(), result.profileDigest);
+    expect(result.checks.find((check) => check.name === 'guest-kernel-capabilities')).toMatchObject({ passed: true });
     expect(spec.config.drives).toEqual([{ drive_id: 'rootfs', is_read_only: true, is_root_device: true, path_on_host: '/rootfs' }]);
     expect(spec.config['boot-source'].boot_args).toContain('fates.execution_contract=fates-005a-proposal-channel-v1');
     expect(spec.config['boot-source'].boot_args).not.toContain('fates.workload=');
@@ -149,6 +166,20 @@ describe('FATES-005A proposal-only profile', () => {
     candidate.workload = { path: '/opt/fates/workload.squashfs', sha256: DIGESTS.workload };
     const result = await new Fates005aProposalProfileVerifier(io()).verify(candidate);
     expect(result).toMatchObject({ ok: false, reason: expect.stringContaining('cannot carry workload') });
+  });
+
+  it('fails closed when the certified guest kernel capability record is missing, unbound, or modular', () => {
+    const missing = proposalManifest() as Fates005aProposalProfileManifest & { guestKernelCapabilities?: unknown };
+    delete missing.guestKernelCapabilities;
+    expect(validateFates005aGuestKernelCapabilities(missing)).toMatchObject({ ok: false, reason: expect.stringContaining('missing') });
+
+    const unbound = proposalManifest();
+    unbound.guestKernelCapabilities.kernelSha256 = '8'.repeat(64);
+    expect(validateFates005aGuestKernelCapabilities(unbound)).toMatchObject({ ok: false, reason: expect.stringContaining('not bound') });
+
+    const modular = proposalManifest();
+    modular.guestKernelCapabilities.symbols.CONFIG_VIRTIO_VSOCKETS = 'm' as never;
+    expect(validateFates005aGuestKernelCapabilities(modular)).toMatchObject({ ok: false, reason: expect.stringContaining('CONFIG_VIRTIO_VSOCKETS=y') });
   });
 });
 

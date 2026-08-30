@@ -44,6 +44,56 @@ export class FatesVsockProtocolError extends Error {
   }
 }
 
+export const FATES_GUEST_DIAGNOSTIC_STAGES = [
+  'INIT_STARTED',
+  'CMDLINE_PARSED',
+  'CMDLINE_FAILED',
+  'EXECUTION_CONTRACT_VALID',
+  'EXECUTION_CONTRACT_FAILED',
+  'AF_VSOCK_SOCKET_CREATED',
+  'AF_VSOCK_SOCKET_FAILED',
+  'AF_VSOCK_CONNECT_RETRY',
+  'AF_VSOCK_CONNECT_FAILED',
+  'AF_VSOCK_CONNECTED',
+  'PROPOSAL_SENT',
+  'PROPOSAL_SEND_FAILED',
+  'RESULT_RECEIVED',
+  'RESULT_RECEIVE_FAILED',
+  'RESULT_DENIED',
+  'RESULT_ALLOW',
+] as const;
+
+export type FatesGuestDiagnosticStage = typeof FATES_GUEST_DIAGNOSTIC_STAGES[number];
+
+export interface FatesGuestDiagnosticEvent {
+  stage: FatesGuestDiagnosticStage;
+  errno?: number;
+}
+
+export class FatesGuestDiagnosticError extends Error {
+  constructor(readonly code: 'message_too_large' | 'invalid_line' | 'unknown_stage' | 'invalid_errno', message: string) {
+    super(message);
+    this.name = 'FatesGuestDiagnosticError';
+  }
+}
+
+/**
+ * Parse one bounded serial diagnostic line emitted only by an explicitly
+ * diagnostic guest initrd build. The parser admits fixed stage names and a
+ * bounded numeric errno; it never accepts arbitrary guest output as evidence.
+ */
+export function parseFatesGuestDiagnosticLine(line: string, maxLineBytes = 256): FatesGuestDiagnosticEvent {
+  if (typeof line !== 'string' || Buffer.byteLength(line, 'utf8') > maxLineBytes) throw new FatesGuestDiagnosticError('message_too_large', 'Fates guest diagnostic line exceeds the configured bound');
+  const match = /^FATES_005A_GUEST_STAGE ([A-Z_]+)(?: errno=([0-9]{1,5}))?$/.exec(line);
+  if (!match) throw new FatesGuestDiagnosticError('invalid_line', 'Fates guest diagnostic line is malformed');
+  const stage = match[1] as FatesGuestDiagnosticStage;
+  if (!(FATES_GUEST_DIAGNOSTIC_STAGES as readonly string[]).includes(stage)) throw new FatesGuestDiagnosticError('unknown_stage', 'Fates guest diagnostic stage is not allowed');
+  if (match[2] === undefined) return { stage };
+  const errno = Number(match[2]);
+  if (!Number.isSafeInteger(errno) || errno < 0 || errno > 65535) throw new FatesGuestDiagnosticError('invalid_errno', 'Fates guest diagnostic errno is outside the configured bound');
+  return { stage, errno };
+}
+
 export function parseFatesGuestProposal(frame: string, expectedSessionId: string, maxMessageBytes = DEFAULT_MAX_FRAME_BYTES): FatesGuestProposalEnvelope {
   if (Buffer.byteLength(frame, 'utf8') > maxMessageBytes) throw new FatesVsockProtocolError('message_too_large', 'Fates proposal exceeds the configured bound');
   let parsed: unknown;

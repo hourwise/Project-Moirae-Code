@@ -73,6 +73,8 @@ export interface Fates005aProposalProfileManifest {
   firecracker: PinnedArtifact;
   jailer: PinnedArtifact;
   guestKernel: PinnedArtifact;
+  /** Embedded-IKCONFIG capability certification bound to guestKernel.sha256. */
+  guestKernelCapabilities: Fates005aGuestKernelCapabilityRecord;
   guestRootfs: PinnedArtifact;
   /** Fresh initrd containing only the fixed proposal-channel client. */
   guestInitrd: PinnedArtifact;
@@ -95,6 +97,47 @@ export interface Fates005aProposalProfileManifest {
     memoryId: string;
     idempotencyKey: string;
   };
+}
+
+export const FATES_005A_REQUIRED_GUEST_KERNEL_SYMBOLS = [
+  'CONFIG_VSOCKETS',
+  'CONFIG_VIRTIO_VSOCKETS',
+  'CONFIG_VIRTIO',
+  'CONFIG_VIRTIO_MMIO',
+  'CONFIG_VIRTIO_MMIO_CMDLINE_DEVICES',
+  'CONFIG_BLK_DEV_INITRD',
+  'CONFIG_KVM_GUEST',
+  'CONFIG_SERIAL_8250_CONSOLE',
+  'CONFIG_PRINTK',
+] as const;
+
+export type Fates005aGuestKernelSymbol = typeof FATES_005A_REQUIRED_GUEST_KERNEL_SYMBOLS[number];
+
+export interface Fates005aGuestKernelCapabilityRecord {
+  kernelSha256: string;
+  configSha256: string;
+  symbols: Record<Fates005aGuestKernelSymbol, 'y'>;
+}
+
+export type Fates005aGuestKernelCapabilityValidation =
+  | { ok: true; configSha256: string }
+  | { ok: false; reason: string };
+
+export function validateFates005aGuestKernelCapabilities(
+  manifest: Pick<Fates005aProposalProfileManifest, 'guestKernel' | 'guestKernelCapabilities'>,
+): Fates005aGuestKernelCapabilityValidation {
+  const capability = manifest.guestKernelCapabilities;
+  if (!capability || typeof capability !== 'object' || Array.isArray(capability)) return { ok: false, reason: 'FATES-005A guest kernel capability certification is missing' };
+  if (!SHA256.test(capability.kernelSha256) || capability.kernelSha256 !== manifest.guestKernel.sha256) return { ok: false, reason: 'FATES-005A guest kernel capability certification is not bound to the pinned kernel digest' };
+  if (!SHA256.test(capability.configSha256)) return { ok: false, reason: 'FATES-005A guest kernel config certification digest is malformed' };
+  if (!capability.symbols || typeof capability.symbols !== 'object' || Array.isArray(capability.symbols)) return { ok: false, reason: 'FATES-005A guest kernel config certification symbols are missing' };
+  const keys = Object.keys(capability.symbols).sort();
+  const required = [...FATES_005A_REQUIRED_GUEST_KERNEL_SYMBOLS].sort();
+  if (keys.length !== required.length || keys.some((key, index) => key !== required[index])) return { ok: false, reason: 'FATES-005A guest kernel config certification contains an unsupported or missing symbol' };
+  for (const symbol of FATES_005A_REQUIRED_GUEST_KERNEL_SYMBOLS) {
+    if (capability.symbols[symbol] !== 'y') return { ok: false, reason: `FATES-005A requires built-in ${symbol}=y in the certified guest kernel` };
+  }
+  return { ok: true, configSha256: capability.configSha256 };
 }
 
 export interface Fates005aProposalLaunchSpec {
@@ -383,6 +426,10 @@ export class Fates005aProposalProfileVerifier {
     checks.push({ name: 'platform', passed: true, detail: 'linux' });
     if (this.io.architecture() !== 'x64') return fail('architecture', 'Firecracker containment requires x86_64; no fallback is permitted');
     checks.push({ name: 'architecture', passed: true, detail: 'x86_64' });
+
+    const kernelCapabilities = validateFates005aGuestKernelCapabilities(manifest);
+    if (!kernelCapabilities.ok) return fail('guest-kernel-capabilities', kernelCapabilities.reason);
+    checks.push({ name: 'guest-kernel-capabilities', passed: true, detail: `embedded config ${kernelCapabilities.configSha256}; all required transport symbols are built in` });
 
     const kvmPath = manifest.kvmDevice ?? KVM_DEVICE;
     if (!isAbsolute(kvmPath)) return fail('kvm-path', 'KVM device path must be absolute');
